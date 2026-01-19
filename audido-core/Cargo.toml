@@ -12,7 +12,8 @@ rustfft = "6.4.1"
 symphonia = "0.5.5"
 tokio = { workspace = true }
 anyhow = { workspace = true }
+log = { workspace = true }
+env_logger = { workspace = true }
 thiserror = "2.0.18"
 crossbeam-channel = "0.5.15"
 youtube_dl = "0.10.0"
-
