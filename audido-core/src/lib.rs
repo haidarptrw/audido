@@ -3,6 +3,8 @@ pub mod dsp;
 pub mod engine;
 pub mod source;
 pub mod commands;
+pub mod app;
+pub mod browser;
 
 pub fn init_engine() {
 

@@ -79,6 +79,7 @@ impl Display for MusicalSongKey {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct AudioMetadata {
     /// Audio format (mp3, flac, wav, ogg, etc)
     pub format: String,
@@ -108,6 +109,8 @@ pub struct AudioMetadata {
     pub danceability: Option<f32>,
     /// Audio acousticness (computed internally)
     pub acousticness: Option<f32>,
+
+    pub electronicness: Option<f32>,
     // Add more in the future (optional)
     // pub lyric: Option<LyricData> // LyricData store lyrics and each part's timestamp
 }
@@ -129,6 +132,7 @@ impl Default for AudioMetadata {
             album: None,
             danceability: None,
             acousticness: None,
+            electronicness: None,
         }
     }
 }

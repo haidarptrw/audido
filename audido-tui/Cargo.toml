@@ -7,5 +7,9 @@ edition = "2024"
 crossterm = "0.29.0"
 ratatui = "0.30.0"
 audido-core = { path = "../audido-core" }
+crossbeam-channel = "0.5.15"
 tokio = { workspace = true }
 anyhow = { workspace = true }
+log = { workspace = true }
+env_logger = { workspace = true }
+tui-logger = "0.18.1"
