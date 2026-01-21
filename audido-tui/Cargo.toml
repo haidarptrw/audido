@@ -2,9 +2,16 @@
 name = "audido-tui"
 version = "0.1.0"
 edition = "2024"
+description = "A terminal-based audio player with queue management"
+license = "MIT"
+
+[package.metadata.wix]
+upgrade-guid = "E5F5F5F5-5F5F-5F5F-5F5F-5F5F5F5F5F5F"
+path-guid = "F6F6F6F6-6F6F-6F6F-6F6F-6F6F6F6F6F6F"
+license = false
+eula = false
 
 [dependencies]
-crossterm = "0.29.0"
 ratatui = "0.30.0"
 audido-core = { path = "../audido-core" }
 crossbeam-channel = "0.5.15"
@@ -13,3 +20,5 @@ anyhow = { workspace = true }
 log = { workspace = true }
 env_logger = { workspace = true }
 tui-logger = "0.18.1"
+strum = { version = "0.27", features = ["derive"] }
+strum_macros = "0.27"

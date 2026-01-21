@@ -1,12 +1,14 @@
 use std::io;
 use std::time::Duration;
 
-use crossterm::{
-    event::{self, Event, KeyCode, KeyEventKind},
-    execute,
-    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
+use ratatui::{
+    backend::CrosstermBackend,
+    crossterm::{
+        event::{self, Event, KeyCode, KeyEventKind},
+        execute,
+        terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
+    },
 };
-use ratatui::backend::CrosstermBackend;
 
 use audido_core::{
     commands::AudioCommand,
@@ -16,7 +18,7 @@ use audido_core::{
 mod state;
 mod ui;
 
-use state::{AppState, FocusedWidget};
+use state::{ActiveTab, AppState, BrowserFileDialog};
 
 fn main() -> anyhow::Result<()> {
     // Initialize tui_logger for TUI log display
@@ -25,9 +27,8 @@ fn main() -> anyhow::Result<()> {
 
     log::info!("Starting Audido TUI");
 
-    // Get audio file path from command line args
-    let args: Vec<String> = std::env::args().collect();
-    let audio_file = args.get(1).cloned();
+    // Get audio file paths from command line args (supports multiple files)
+    let args: Vec<String> = std::env::args().skip(1).collect();
 
     // Create audio engine and get communication handle
     let (engine, handle) = AudioEngine::new()?;
@@ -36,13 +37,13 @@ fn main() -> anyhow::Result<()> {
     let _engine_thread = engine.spawn();
 
     // Run TUI
-    let result = run_tui(handle, audio_file);
+    let result = run_tui(handle, args);
 
     // Ensure clean shutdown
     result
 }
 
-fn run_tui(handle: AudioEngineHandle, initial_file: Option<String>) -> anyhow::Result<()> {
+fn run_tui(handle: AudioEngineHandle, initial_files: Vec<String>) -> anyhow::Result<()> {
     // Setup terminal
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -52,11 +53,14 @@ fn run_tui(handle: AudioEngineHandle, initial_file: Option<String>) -> anyhow::R
 
     let mut state = AppState::new();
 
-    // Load initial file if provided
-    if let Some(path) = initial_file {
-        handle.cmd_tx.send(AudioCommand::Load(path.clone()))?;
-        state.status_message = format!("Loading: {}", path);
-        log::info!("Loading audio file: {}", path);
+    // Load initial files if provided (add to queue and start playing)
+    if !initial_files.is_empty() {
+        log::info!("Adding {} files to queue from CLI", initial_files.len());
+        handle
+            .cmd_tx
+            .send(AudioCommand::AddToQueue(initial_files))?;
+        handle.cmd_tx.send(AudioCommand::PlayQueueIndex(0))?;
+        state.status_message = "Loading queue...".to_string();
     }
 
     loop {
@@ -88,46 +92,114 @@ fn run_tui(handle: AudioEngineHandle, initial_file: Option<String>) -> anyhow::R
                         KeyCode::Char('s') => {
                             handle.cmd_tx.send(AudioCommand::Stop)?;
                         }
+                        KeyCode::Char('n') => {
+                            handle.cmd_tx.send(AudioCommand::Next)?;
+                        }
+                        KeyCode::Char('p') => {
+                            handle.cmd_tx.send(AudioCommand::Previous)?;
+                        }
+                        KeyCode::Char('l') => {
+                            let next_mode = state.next_loop_mode();
+                            handle.cmd_tx.send(AudioCommand::SetLoopMode(next_mode))?;
+                        }
 
-                        // Focus switching
-                        KeyCode::Tab | KeyCode::Esc => {
-                            state.toggle_focus();
-                            log::debug!("Switched focus to {:?}", state.focused_widget);
+                        // Tab switching (only when dialog is not open)
+                        KeyCode::Tab => {
+                            if !state.is_dialog_open() {
+                                state.next_tab();
+                                log::debug!("Switched to tab {:?}", state.active_tab);
+                            }
+                        }
+                        KeyCode::Esc => {
+                            if state.is_dialog_open() {
+                                state.close_dialog();
+                            } else {
+                                state.next_tab();
+                            }
                         }
 
                         // Context-sensitive arrow keys
                         KeyCode::Up => {
-                            match state.focused_widget {
-                                FocusedWidget::Playback => {
-                                    state.volume = (state.volume + 0.1).min(1.0);
-                                    handle.cmd_tx.send(AudioCommand::SetVolume(state.volume))?;
-                                }
-                                FocusedWidget::Log => {
-                                    // tui_logger handles scrolling internally via its state
-                                    // For basic usage, we just log that scrolling is attempted
-                                    log::trace!("Log scroll up");
+                            if state.is_dialog_open() {
+                                state.dialog_toggle();
+                            } else {
+                                match state.active_tab {
+                                    ActiveTab::Playback => {
+                                        state.volume = (state.volume + 0.1).min(1.0);
+                                        handle
+                                            .cmd_tx
+                                            .send(AudioCommand::SetVolume(state.volume))?;
+                                    }
+                                    ActiveTab::Log => {
+                                        log::trace!("Log scroll up");
+                                    }
+                                    ActiveTab::Browser => state.browser_prev(),
+                                    ActiveTab::Queue => state.queue_prev(),
                                 }
                             }
                         }
-                        KeyCode::Down => match state.focused_widget {
-                            FocusedWidget::Playback => {
-                                state.volume = (state.volume - 0.1).max(0.0);
-                                handle.cmd_tx.send(AudioCommand::SetVolume(state.volume))?;
+                        KeyCode::Down => {
+                            if state.is_dialog_open() {
+                                state.dialog_toggle();
+                            } else {
+                                match state.active_tab {
+                                    ActiveTab::Playback => {
+                                        state.volume = (state.volume - 0.1).max(0.0);
+                                        handle
+                                            .cmd_tx
+                                            .send(AudioCommand::SetVolume(state.volume))?;
+                                    }
+                                    ActiveTab::Log => {
+                                        log::trace!("Log scroll down");
+                                    }
+                                    ActiveTab::Browser => state.browser_next(),
+                                    ActiveTab::Queue => state.queue_next(),
+                                }
                             }
-                            FocusedWidget::Log => {
-                                log::trace!("Log scroll down");
-                            }
-                        },
+                        }
                         KeyCode::Left => {
-                            if state.focused_widget == FocusedWidget::Playback {
+                            if state.active_tab == ActiveTab::Playback {
                                 let new_pos = (state.position - 5.0).max(0.0);
                                 handle.cmd_tx.send(AudioCommand::Seek(new_pos))?;
                             }
                         }
                         KeyCode::Right => {
-                            if state.focused_widget == FocusedWidget::Playback {
+                            if state.active_tab == ActiveTab::Playback {
                                 let new_pos = state.position + 5.0;
                                 handle.cmd_tx.send(AudioCommand::Seek(new_pos))?;
+                            }
+                        }
+                        KeyCode::Enter => {
+                            // Handle dialog confirmation
+                            if let BrowserFileDialog::Open { path, selected } =
+                                &state.browser_dialog
+                            {
+                                let path_str = path.to_string_lossy().to_string();
+                                if *selected == 0 {
+                                    // Play Now: clear queue, add this file, play
+                                    handle.cmd_tx.send(AudioCommand::ClearQueue)?;
+                                    handle
+                                        .cmd_tx
+                                        .send(AudioCommand::AddToQueue(vec![path_str]))?;
+                                    handle.cmd_tx.send(AudioCommand::PlayQueueIndex(0))?;
+                                    state.active_tab = ActiveTab::Playback;
+                                } else {
+                                    // Add to Queue
+                                    handle
+                                        .cmd_tx
+                                        .send(AudioCommand::AddToQueue(vec![path_str]))?;
+                                }
+                                state.close_dialog();
+                            } else if state.active_tab == ActiveTab::Browser {
+                                // Open dialog for file selection
+                                if let Some(path) = state.browser_enter() {
+                                    state.open_browser_dialog(path);
+                                }
+                            } else if state.active_tab == ActiveTab::Queue {
+                                // Play selected track from queue
+                                if let Some(idx) = state.queue_selected() {
+                                    handle.cmd_tx.send(AudioCommand::PlayQueueIndex(idx))?;
+                                }
                             }
                         }
                         _ => {}

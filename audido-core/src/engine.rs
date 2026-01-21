@@ -9,6 +9,7 @@ use rodio::{
 };
 
 use crate::commands::{AudioCommand, AudioResponse};
+use crate::queue::{LoopMode, PlaybackQueue};
 use crate::source::AudioPlaybackData;
 
 /// Handle to communicate with the audio engine from the TUI
@@ -26,6 +27,7 @@ pub struct AudioEngine {
     current_audio: Option<AudioPlaybackData>,
     is_playing: bool,
     target_volume: f32,
+    queue: PlaybackQueue,
 }
 
 // Constants for fading
@@ -65,6 +67,7 @@ impl AudioEngine {
             current_audio: None,
             is_playing: false,
             target_volume: 1.0,
+            queue: PlaybackQueue::new(),
         };
 
         let handle = AudioEngineHandle { cmd_tx, resp_rx };
@@ -149,21 +152,25 @@ impl AudioEngine {
             }
 
             if self.is_playing && self.sink.empty() && !self.sink.is_paused() {
-                log::info!("Track finished naturally. Stopping.");
-                self.is_playing = false;
+                log::info!("Track finished naturally.");
 
                 if let Some(ref audio_data) = self.current_audio {
                     audio_data.position_tracker().reset();
                 }
 
-                // Notify UI
-                let _ = self.resp_tx.send(AudioResponse::Stopped);
-                let _ = self.resp_tx.send(AudioResponse::Position {
-                    current: 0.0,
-                    total: 0.0,
-                });
-
-                self.sink.set_volume(self.target_volume);
+                // Try to advance to next track based on loop mode
+                if let Some(next_idx) = self.queue.next_index() {
+                    self.play_queue_track(next_idx);
+                } else {
+                    // No more tracks, stop playback
+                    self.is_playing = false;
+                    let _ = self.resp_tx.send(AudioResponse::Stopped);
+                    let _ = self.resp_tx.send(AudioResponse::Position {
+                        current: 0.0,
+                        total: 0.0,
+                    });
+                    self.sink.set_volume(self.target_volume);
+                }
             }
 
             // Send position updates if playing
@@ -300,12 +307,20 @@ impl AudioEngine {
                 }
             }
             AudioCommand::Next => {
-                // Playlist support not implemented yet
-                log::info!("Next track (not implemented)");
+                if let Some(next_idx) = self.queue.next_index() {
+                    log::info!("Skipping to next track (index {})", next_idx);
+                    self.play_queue_track(next_idx);
+                } else {
+                    log::info!("No next track available");
+                }
             }
             AudioCommand::Previous => {
-                // Playlist support not implemented yet
-                log::info!("Previous track (not implemented)");
+                if let Some(prev_idx) = self.queue.prev_index() {
+                    log::info!("Skipping to previous track (index {})", prev_idx);
+                    self.play_queue_track(prev_idx);
+                } else {
+                    log::info!("No previous track available");
+                }
             }
             AudioCommand::Quit => {
                 if self.is_playing {
@@ -315,7 +330,107 @@ impl AudioEngine {
                 self.sink.stop();
                 return false;
             }
+            AudioCommand::AddToQueue(paths) => {
+                log::info!("Adding {} items to queue", paths.len());
+                let path_bufs: Vec<std::path::PathBuf> =
+                    paths.into_iter().map(|s| s.into()).collect();
+                self.queue.add(path_bufs);
+                self.send_queue_update();
+            }
+            AudioCommand::RemoveFromQueue(id) => {
+                if self.queue.remove(id) {
+                    log::info!("Removed item {} from queue", id);
+                    self.send_queue_update();
+                }
+            }
+            AudioCommand::ClearQueue => {
+                log::info!("Clearing queue");
+                if self.is_playing {
+                    self.perform_fade_out();
+                    self.sink.stop();
+                    self.is_playing = false;
+                }
+                self.queue.clear();
+                self.current_audio = None;
+                self.send_queue_update();
+                let _ = self.resp_tx.send(AudioResponse::Stopped);
+            }
+            AudioCommand::SetLoopMode(mode) => {
+                log::info!("Setting loop mode to {:?}", mode);
+                self.queue.loop_mode = mode;
+                if mode == LoopMode::Shuffle {
+                    self.queue.reshuffle();
+                }
+                let _ = self.resp_tx.send(AudioResponse::LoopModeChanged(mode));
+            }
+            AudioCommand::PlayQueueIndex(index) => {
+                if index < self.queue.items.len() {
+                    log::info!("Playing queue index {}", index);
+                    self.play_queue_track(index);
+                } else {
+                    let _ = self.resp_tx.send(AudioResponse::Error(format!(
+                        "Invalid queue index: {}",
+                        index
+                    )));
+                }
+            }
         }
         true
+    }
+
+    /// Helper to play a track from the queue by index
+    fn play_queue_track(&mut self, index: usize) {
+        if let Some(item) = self.queue.get(index) {
+            let path = item.path.to_string_lossy().to_string();
+
+            // Fade out current track if playing
+            if self.is_playing {
+                self.perform_fade_out();
+            }
+            self.sink.stop();
+            self.is_playing = false;
+
+            // Load the new track
+            match AudioPlaybackData::load_local_audio(&path) {
+                Ok(audio_data) => {
+                    let metadata = audio_data.metadata().clone();
+
+                    // Update queue metadata
+                    self.queue.set_metadata(item.id, metadata.clone());
+                    self.queue.current_index = Some(index);
+
+                    self.current_audio = Some(audio_data);
+
+                    // Send track changed notification
+                    let _ = self.resp_tx.send(AudioResponse::TrackChanged {
+                        index,
+                        metadata: metadata.clone(),
+                    });
+                    let _ = self.resp_tx.send(AudioResponse::Loaded(metadata));
+
+                    // Start playing
+                    if let Some(ref data) = self.current_audio {
+                        self.sink.append(data.create_source());
+                        self.sink.set_volume(0.0);
+                        self.sink.play();
+                        self.is_playing = true;
+                        let _ = self.resp_tx.send(AudioResponse::Playing);
+                        self.perform_fade_in();
+                    }
+                }
+                Err(e) => {
+                    let _ = self
+                        .resp_tx
+                        .send(AudioResponse::Error(format!("Failed to load track: {}", e)));
+                }
+            }
+        }
+    }
+
+    /// Send queue update to TUI
+    fn send_queue_update(&self) {
+        let _ = self
+            .resp_tx
+            .send(AudioResponse::QueueUpdated(self.queue.items.clone()));
     }
 }

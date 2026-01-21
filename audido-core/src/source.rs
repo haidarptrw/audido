@@ -120,7 +120,7 @@ impl AudioPlaybackData {
         Self::get_audio_metadata(path, &mut metadata)?;
 
         // analyze
-        Self::get_audio_properties(&samples, &mut metadata)?;
+        Self::get_audio_properties(&samples, num_channels, &mut metadata)?;
 
         let total_samples = samples.len();
         let position_tracker = PositionTracker::new(total_samples, sample_rate, num_channels);
@@ -136,10 +136,11 @@ impl AudioPlaybackData {
     }
 
     /// Get audio properties from a buffer and then assign it to the metadata
-    fn get_audio_properties(buffer: &[f32], metadata: &mut AudioMetadata) -> anyhow::Result<()> {
+    fn get_audio_properties(buffer: &[f32], num_channels: u16, metadata: &mut AudioMetadata) -> anyhow::Result<()> {
         Ok(())
     }
 
+    //// Get audio metadata from loaded file (title, author, album, genre, etc)
     fn get_audio_metadata(path: &str, metadata: &mut AudioMetadata) -> anyhow::Result<()> {
         match Probe::open(path).and_then(|p| p.read()) {
             Ok(tagged_file) => {

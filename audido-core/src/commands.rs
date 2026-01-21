@@ -1,4 +1,4 @@
-use crate::metadata::AudioMetadata;
+use crate::{metadata::AudioMetadata, queue::{LoopMode, QueueItem}};
 
 /// Commands sent from the TUI to the audio engine
 #[derive(Debug, Clone)]
@@ -21,6 +21,16 @@ pub enum AudioCommand {
     SetVolume(f32),
     /// Set playback speed multiplier
     SetSpeed(f32),
+    /// Add files to the queue
+    AddToQueue(Vec<String>),
+    /// Remove a file from the queue by index
+    RemoveFromQueue(usize),
+    /// Clear the queue
+    ClearQueue,
+    /// Set the loop mode
+    SetLoopMode(LoopMode),
+    /// Play a specific track from the queue
+    PlayQueueIndex(usize),
     /// Shutdown the audio engine
     Quit,
 }
@@ -38,6 +48,9 @@ pub enum AudioResponse {
     Loaded(AudioMetadata),
     /// Current playback position in seconds and total duration
     Position { current: f32, total: f32 },
+    QueueUpdated(Vec<QueueItem>),
+    LoopModeChanged(LoopMode),
+    TrackChanged {index: usize, metadata: AudioMetadata},
     /// An error occurred
     Error(String),
     /// Engine is shutting down
