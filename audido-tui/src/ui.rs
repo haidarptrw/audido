@@ -64,12 +64,32 @@ fn draw_sidebar(f: &mut Frame, area: Rect, state: &AppState) {
 
 /// Draw the main content area based on active tab
 fn draw_main_content(f: &mut Frame, area: Rect, state: &AppState) {
+    // Split the main area into Content (top) and Footer (bottom)
+    // Footer contains Controls (3 lines) and Status (3 lines)
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Min(0),    // Panel specific content
+            Constraint::Length(3), // Controls info
+            Constraint::Length(3), // Status bar
+        ])
+        .split(area);
+
+    let content_area = chunks[0];
+    let controls_area = chunks[1];
+    let status_area = chunks[2];
+
+    // Draw the specific panel in the top content area
     match state.active_tab {
-        ActiveTab::Playback => draw_playback_panel(f, area, state),
-        ActiveTab::Queue => draw_queue_panel(f, area, state),
-        ActiveTab::Log => draw_log_panel(f, area, state),
-        ActiveTab::Browser => draw_browser_panel(f, area, state),
+        ActiveTab::Playback => draw_playback_panel(f, content_area, state),
+        ActiveTab::Queue => draw_queue_panel(f, content_area, state),
+        ActiveTab::Log => draw_log_panel(f, content_area, state),
+        ActiveTab::Browser => draw_browser_panel(f, content_area, state),
     }
+
+    // Draw global footers on every tab
+    draw_controls(f, controls_area, state);
+    draw_status(f, status_area, state);
 }
 
 /// Draw the playback panel
@@ -88,8 +108,6 @@ fn draw_playback_panel(f: &mut Frame, area: Rect, state: &AppState) {
 
     draw_now_playing(f, chunks[0], state, is_active);
     draw_progress(f, chunks[1], state);
-    draw_controls(f, chunks[2], state);
-    draw_status(f, chunks[3], state);
 }
 
 /// Draw the log panel
@@ -107,7 +125,7 @@ fn draw_log_panel(f: &mut Frame, area: Rect, state: &AppState) {
     let log_widget = TuiLoggerWidget::default()
         .block(
             Block::default()
-                .title(" 📋 Logs ")
+                .title(" 📋 Log ")
                 .borders(Borders::ALL)
                 .border_style(border_style),
         )

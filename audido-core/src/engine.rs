@@ -208,14 +208,14 @@ impl AudioEngine {
                         let metadata = audio_data.metadata().clone();
                         self.current_audio = Some(audio_data);
                         let _ = self.resp_tx.send(AudioResponse::Loaded(metadata));
-
+                        
                         if let Some(ref data) = self.current_audio {
                             self.sink.append(data.create_source());
                             self.sink.set_volume(0.0);
                             self.sink.play();
                             self.is_playing = true;
                             let _ = self.resp_tx.send(AudioResponse::Playing);
-                            self.perform_fade_in();
+                            self.perform_fade_in(); 
                         }
                     }
                     Err(e) => {
