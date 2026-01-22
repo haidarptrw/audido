@@ -8,9 +8,12 @@ use rodio::{
     cpal::{self, traits::HostTrait},
 };
 
-use crate::commands::{AudioCommand, AudioResponse};
 use crate::queue::{LoopMode, PlaybackQueue};
 use crate::source::AudioPlaybackData;
+use crate::{
+    commands::{AudioCommand, AudioResponse},
+    dsp::eq::Equalizer,
+};
 
 /// Handle to communicate with the audio engine from the TUI
 pub struct AudioEngineHandle {
@@ -18,8 +21,29 @@ pub struct AudioEngineHandle {
     pub resp_rx: Receiver<AudioResponse>,
 }
 
+pub struct EqualizerConfig {
+    pub active: bool,
+    instance: Equalizer,
+}
+
+impl EqualizerConfig {
+    pub fn new(sample_rate: u32) -> Self {
+        Self {
+            active: false,
+            instance: Equalizer::new(sample_rate),
+        }
+    }
+    pub fn get_instance(&self) -> &Equalizer {
+        &self.instance
+    }
+
+    pub fn get_instance_mut(&mut self) -> &mut Equalizer {
+        &mut self.instance
+    }
+}
+
 pub struct AudioEngine {
-    stream: OutputStream,
+    _stream: OutputStream,
     sink: Sink,
     device_name: String,
     cmd_rx: Receiver<AudioCommand>,
@@ -28,6 +52,7 @@ pub struct AudioEngine {
     is_playing: bool,
     target_volume: f32,
     queue: PlaybackQueue,
+    eq: Option<EqualizerConfig>,
 }
 
 // Constants for fading
@@ -59,7 +84,7 @@ impl AudioEngine {
         let (resp_tx, resp_rx) = unbounded::<AudioResponse>();
 
         let engine = AudioEngine {
-            stream,
+            _stream: stream,
             sink,
             device_name,
             cmd_rx,
@@ -68,6 +93,7 @@ impl AudioEngine {
             is_playing: false,
             target_volume: 1.0,
             queue: PlaybackQueue::new(),
+            eq: None,
         };
 
         let handle = AudioEngineHandle { cmd_tx, resp_rx };
@@ -207,15 +233,16 @@ impl AudioEngine {
                     Ok(audio_data) => {
                         let metadata = audio_data.metadata().clone();
                         self.current_audio = Some(audio_data);
+                        self.eq = Some(EqualizerConfig::new(metadata.sample_rate));
                         let _ = self.resp_tx.send(AudioResponse::Loaded(metadata));
-                        
+
                         if let Some(ref data) = self.current_audio {
                             self.sink.append(data.create_source());
                             self.sink.set_volume(0.0);
                             self.sink.play();
                             self.is_playing = true;
                             let _ = self.resp_tx.send(AudioResponse::Playing);
-                            self.perform_fade_in(); 
+                            self.perform_fade_in();
                         }
                     }
                     Err(e) => {

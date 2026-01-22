@@ -269,6 +269,8 @@ fn draw_controls(f: &mut Frame, area: Rect, state: &AppState) {
                 Span::raw(" Next/Prev  "),
                 Span::styled("[L]", Style::default().fg(Color::Yellow)),
                 Span::raw(" Loop  "),
+                Span::styled("[Tab]", Style::default().fg(Color::Magenta)),
+                Span::raw(" Switch Tab  "),
                 Span::styled("[Q]", Style::default().fg(Color::Red)),
                 Span::raw(" Quit"),
             ]
