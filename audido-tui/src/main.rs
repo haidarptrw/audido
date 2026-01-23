@@ -1,6 +1,8 @@
-use std::io;
+use std::fs::canonicalize;
+use std::{io, path::PathBuf};
 use std::time::Duration;
 
+use audido_core::browser;
 use ratatui::{
     backend::CrosstermBackend,
     crossterm::{
@@ -55,6 +57,34 @@ fn run_tui(handle: AudioEngineHandle, initial_files: Vec<String>) -> anyhow::Res
 
     // Load initial files if provided (add to queue and start playing)
     if !initial_files.is_empty() {
+
+        if let Some(first_part_str) = initial_files.first() {
+            let path = PathBuf::from(first_part_str);
+
+            let target_dir = if let Ok(abs_path) = canonicalize(&path) {
+                if abs_path.is_dir() {
+                    Some(abs_path)
+                } else {
+                    abs_path.parent().map(|p| p.to_path_buf())
+                }
+            } else {
+                if path.is_dir() {
+                    Some(path)
+                } else {
+                    path.parent().map(|p| p.to_path_buf())
+                }
+            };
+
+            if let Some(dir) = target_dir {{
+                // Call core browser function to get file list
+                if let Ok(items) = browser::get_directory_content(&dir) {
+                    state.current_dir = dir;
+                    state.browser_items = items;
+                    state.browser_state.select(Some(0));
+                    log::info!("Browser context set to: {:?}", state.current_dir);
+                }
+            }}
+        }
         log::info!("Adding {} files to queue from CLI", initial_files.len());
         handle
             .cmd_tx

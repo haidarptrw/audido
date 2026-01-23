@@ -2,7 +2,7 @@ use std::{
     fs::File,
     path::Path,
     sync::{
-        Arc, Mutex,
+        Arc,
         atomic::{AtomicUsize, Ordering},
     },
     time::Instant,
@@ -14,10 +14,8 @@ use lofty::{file::TaggedFileExt, probe::Probe, tag::Accessor};
 use rodio::{Decoder, Source};
 
 use crate::{
-    dsp::{
-        dsp_graph::DspNode,
-        eq::{EqCommand, Equalizer},
-    },
+    commands::RealtimeAudioCommand,
+    dsp::{dsp_graph::DspNode, eq::Equalizer},
     metadata::{AudioMetadata, ChannelLayout},
 };
 
@@ -198,7 +196,7 @@ impl AudioPlaybackData {
     pub fn create_source(
         &self,
         initial_eq: Equalizer,
-        cmd_rx: Receiver<EqCommand>,
+        cmd_rx: Receiver<RealtimeAudioCommand>,
     ) -> BufferedSource {
         BufferedSource::new(
             self.buffer.clone(),
@@ -218,7 +216,7 @@ pub struct BufferedSource {
     channels: u16,
     position_tracker: PositionTracker,
     equalizer: DspNode<Equalizer>,
-    cmd_rx: Receiver<EqCommand>,
+    cmd_rx: Receiver<RealtimeAudioCommand>,
 
     // Chunk Processing
     process_buffer: Vec<f32>,
@@ -232,7 +230,7 @@ impl BufferedSource {
         channels: u16,
         position_tracker: PositionTracker,
         equalizer: Equalizer,
-        cmd_rx: Receiver<EqCommand>,
+        cmd_rx: Receiver<RealtimeAudioCommand>,
     ) -> Self {
         Self {
             samples,
@@ -253,13 +251,10 @@ impl BufferedSource {
         // 1. Process Pending EQ Commands (Lock-Free)
         while let Ok(cmd) = self.cmd_rx.try_recv() {
             match cmd {
-                EqCommand::SetEnabled(enabled) => self.equalizer.on = enabled,
-                EqCommand::UpdateFilter(idx, node) => self.equalizer.set_filter(idx, node),
-                EqCommand::SetMasterGain(g) => self.equalizer.set_master_gain(g),
-                EqCommand::SetPreset(p) => {
-                    self.equalizer.instance.update_preset(p);
-                }
-                EqCommand::UpdateAllFilters(nodes) => self.equalizer.set_all_filters(nodes),
+                RealtimeAudioCommand::UpdateFilter(_, filter_node) => {},
+                RealtimeAudioCommand::SetAllFilters(filter_nodes) => {},
+                RealtimeAudioCommand::SetMasterGain(_) => {},
+                _ => {}
             }
         }
 
@@ -335,10 +330,10 @@ impl Source for BufferedSource {
     }
 }
 
-mod test {
-    pub fn test_loading_audio() {}
+// mod test {
+//     pub fn test_loading_audio() {}
 
-    pub fn test_reading_metadata() {}
+//     pub fn test_reading_metadata() {}
 
-    pub fn test_audio_analysis() {}
-}
+//     pub fn test_audio_analysis() {}
+// }

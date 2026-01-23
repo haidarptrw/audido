@@ -11,8 +11,8 @@ use rodio::{
 use crate::queue::{LoopMode, PlaybackQueue};
 use crate::source::AudioPlaybackData;
 use crate::{
-    commands::{AudioCommand, AudioResponse},
-    dsp::eq::{EqCommand, Equalizer},
+    commands::{AudioCommand, AudioResponse, RealtimeAudioCommand},
+    dsp::eq::Equalizer,
 };
 
 /// Handle to communicate with the audio engine from the TUI
@@ -31,8 +31,9 @@ pub struct AudioEngine {
     is_playing: bool,
     target_volume: f32,
     queue: PlaybackQueue,
-    // EQ command sender (receiver is owned by BufferedSource)
-    eq_cmd_tx: Option<Sender<EqCommand>>,
+    // Realtime audio command sender (receiver is owned by BufferedSource)
+    eq_shadow: Equalizer,
+    rt_cmd_tx: Option<Sender<RealtimeAudioCommand>>,
 }
 
 // Constants for fading
@@ -73,7 +74,8 @@ impl AudioEngine {
             is_playing: false,
             target_volume: 1.0,
             queue: PlaybackQueue::new(),
-            eq_cmd_tx: None,
+            eq_shadow: Equalizer::new(44100, 2),
+            rt_cmd_tx: None,
         };
 
         let handle = AudioEngineHandle { cmd_tx, resp_rx };
@@ -212,18 +214,31 @@ impl AudioEngine {
                 match AudioPlaybackData::load_local_audio(&path) {
                     Ok(audio_data) => {
                         let metadata = audio_data.metadata().clone();
+
+                        let previous_filters = self.eq_shadow.filters.clone();
+                        let previous_gain = self.eq_shadow.master_gain;
+                        let previous_preset = self.eq_shadow.preset;
+
+                        let mut new_eq =
+                            Equalizer::new(metadata.sample_rate, metadata.num_channels);
+
+                        new_eq.filters = previous_filters;
+                        new_eq.master_gain = previous_gain;
+                        new_eq.preset = previous_preset;
+
+                        new_eq.parameters_changed();
+                        self.eq_shadow = new_eq.clone();
+
                         self.current_audio = Some(audio_data);
                         let _ = self.resp_tx.send(AudioResponse::Loaded(metadata.clone()));
 
                         if let Some(ref data) = self.current_audio {
-                            // Create EQ command channel
-                            let (eq_tx, eq_rx) = unbounded::<EqCommand>();
-                            self.eq_cmd_tx = Some(eq_tx);
+                            // Create realtime audio command channel
+                            let (rt_tx, rt_rx) = unbounded::<RealtimeAudioCommand>();
+                            self.rt_cmd_tx = Some(rt_tx);
 
-                            // Create equalizer with correct channel count
-                            let eq = Equalizer::new(metadata.sample_rate, metadata.num_channels);
-
-                            self.sink.append(data.create_source(eq, eq_rx));
+                            self.sink
+                                .append(data.create_source(self.eq_shadow.clone(), rt_rx));
                             self.sink.set_volume(0.0);
                             self.sink.play();
                             self.is_playing = true;
@@ -242,11 +257,10 @@ impl AudioEngine {
                 if let Some(ref audio_data) = self.current_audio {
                     // Append audio source to sink if not already playing
                     if self.sink.empty() {
-                        let metadata = audio_data.metadata();
-                        let (eq_tx, eq_rx) = unbounded::<EqCommand>();
-                        self.eq_cmd_tx = Some(eq_tx);
-                        let eq = Equalizer::new(metadata.sample_rate, metadata.num_channels);
-                        self.sink.append(audio_data.create_source(eq, eq_rx));
+                        let (rt_tx, rt_rx) = unbounded::<RealtimeAudioCommand>();
+                        self.rt_cmd_tx = Some(rt_tx);
+                        self.sink
+                            .append(audio_data.create_source(self.eq_shadow.clone(), rt_rx));
                     }
                     if !self.is_playing {
                         // Start silent
@@ -311,11 +325,10 @@ impl AudioEngine {
                     audio_data.position_tracker().seek_to_seconds(pos);
 
                     // Create and append new source (starts from tracked position)
-                    let metadata = audio_data.metadata();
-                    let (eq_tx, eq_rx) = unbounded::<EqCommand>();
-                    self.eq_cmd_tx = Some(eq_tx);
-                    let eq = Equalizer::new(metadata.sample_rate, metadata.num_channels);
-                    self.sink.append(audio_data.create_source(eq, eq_rx));
+                    let (rt_tx, rt_rx) = unbounded::<RealtimeAudioCommand>();
+                    self.rt_cmd_tx = Some(rt_tx);
+                    self.sink
+                        .append(audio_data.create_source(self.eq_shadow.clone(), rt_rx));
 
                     if should_play {
                         self.sink.set_volume(self.target_volume);
@@ -427,16 +440,14 @@ impl AudioEngine {
                         index,
                         metadata: metadata.clone(),
                     });
-                    let num_channels = metadata.num_channels;
-                    let sample_rate = metadata.sample_rate;
-                    let _ = self.resp_tx.send(AudioResponse::Loaded(metadata));
 
+                    let eq = Equalizer::new(metadata.sample_rate, metadata.num_channels);
+                    let _ = self.resp_tx.send(AudioResponse::Loaded(metadata));
                     // Start playing
                     if let Some(ref data) = self.current_audio {
-                        let (eq_tx, eq_rx) = unbounded::<EqCommand>();
-                        self.eq_cmd_tx = Some(eq_tx);
-                        let eq = Equalizer::new(sample_rate, num_channels);
-                        self.sink.append(data.create_source(eq, eq_rx));
+                        let (rt_tx, rt_rx) = unbounded::<RealtimeAudioCommand>();
+                        self.rt_cmd_tx = Some(rt_tx);
+                        self.sink.append(data.create_source(eq, rt_rx));
                         self.sink.set_volume(0.0);
                         self.sink.play();
                         self.is_playing = true;

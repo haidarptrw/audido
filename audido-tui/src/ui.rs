@@ -138,7 +138,11 @@ fn draw_browser_panel(f: &mut Frame, area: Rect, state: &AppState) {
     let is_active = state.active_tab == ActiveTab::Browser;
 
     // Title shows current path
-    let title = format!(" Browser: {} ", state.current_dir.to_string_lossy());
+    let title = if state.current_dir.as_os_str().is_empty() {
+        " Browser: System Drives ".to_string()
+    } else {
+        format!(" Browser: {} ", state.current_dir.to_string_lossy())
+    };
 
     let block = Block::default()
         .title(title)
@@ -255,6 +259,8 @@ fn draw_controls(f: &mut Frame, area: Rect, state: &AppState) {
                 Span::raw(" Loop  "),
                 Span::styled("[←/→]", Style::default().fg(Color::Yellow)),
                 Span::raw(" Seek  "),
+                Span::styled("[Tab]", Style::default().fg(Color::Magenta)),
+                Span::raw(" Switch Tab  "),
                 Span::styled("[Q]", Style::default().fg(Color::Red)),
                 Span::raw(" Quit"),
             ]

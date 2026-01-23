@@ -5,16 +5,6 @@ use std::f32::consts::PI;
 
 pub const MAX_EQ_FILTERS: usize = 8;
 
-/// Commands sent from the Engine to the Audio Thread
-#[derive(Debug, Clone)]
-pub enum EqCommand {
-    SetEnabled(bool),
-    UpdateFilter(usize, FilterNode),
-    SetMasterGain(f32),
-    SetPreset(EqPreset),
-    UpdateAllFilters(Vec<FilterNode>),
-}
-
 /// Filter type: Use Direct Form II Biquad Filter
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
 pub enum FilterType {
@@ -70,7 +60,7 @@ impl Default for FilterNode {
 
 /// implement Biquad Filter (Direct Form II Transposed)
 /// $$ y[n] = frac{b0/a0}x[n] + frac{b1/a0}x[n-1] + frac{b2/a0}x[n-2] - frac{a1/a0}y[n-1] - frac{a2/a0}y[n-2] $$
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Debug)]
 struct Biquad {
     // Coefficients
     a1: f32,
@@ -217,6 +207,7 @@ impl EqPreset {
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct Equalizer {
     pub sample_rate: u32,
     pub preset: EqPreset,

@@ -1,4 +1,4 @@
-use crate::{metadata::AudioMetadata, queue::{LoopMode, QueueItem}};
+use crate::{dsp::eq::{EqPreset, FilterNode}, metadata::AudioMetadata, queue::{LoopMode, QueueItem}};
 
 /// Commands sent from the TUI to the audio engine
 #[derive(Debug, Clone)]
@@ -55,4 +55,18 @@ pub enum AudioResponse {
     Error(String),
     /// Engine is shutting down
     Shutdown,
+}
+
+/// Channel 3: Engine -> Audio Source (Real-time Audio Thread)
+#[derive(Debug, Clone)]
+pub enum RealtimeAudioCommand {
+    /// Update a specific filter coefficient
+    UpdateFilter(usize, FilterNode),
+    /// Replace all filters (e.g. changing presets)
+    SetAllFilters(Vec<FilterNode>),
+    /// Update master gain (Pre-amp)
+    SetMasterGain(f32),
+    /// Set the equalizer to a specific preset
+    SetPreset(EqPreset),
+    SetEqEnabled(bool),
 }
