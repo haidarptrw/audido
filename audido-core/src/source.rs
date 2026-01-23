@@ -2,17 +2,26 @@ use std::{
     fs::File,
     path::Path,
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicUsize, Ordering},
     },
     time::Instant,
 };
 
 use anyhow::Context;
+use crossbeam_channel::Receiver;
 use lofty::{file::TaggedFileExt, probe::Probe, tag::Accessor};
 use rodio::{Decoder, Source};
 
-use crate::metadata::{AudioMetadata, ChannelLayout};
+use crate::{
+    dsp::{
+        dsp_graph::DspNode,
+        eq::{EqCommand, Equalizer},
+    },
+    metadata::{AudioMetadata, ChannelLayout},
+};
+
+const CHUNK_SIZE: usize = 512;
 
 /// Shared position tracker between source and engine
 #[derive(Clone)]
@@ -136,7 +145,11 @@ impl AudioPlaybackData {
     }
 
     /// Get audio properties from a buffer and then assign it to the metadata
-    fn get_audio_properties(buffer: &[f32], num_channels: u16, metadata: &mut AudioMetadata) -> anyhow::Result<()> {
+    fn get_audio_properties(
+        buffer: &[f32],
+        num_channels: u16,
+        metadata: &mut AudioMetadata,
+    ) -> anyhow::Result<()> {
         Ok(())
     }
 
@@ -182,13 +195,19 @@ impl AudioPlaybackData {
     }
 
     /// Create a rodio Source from the buffered audio data
-    pub fn create_source(&self) -> BufferedSource {
-        BufferedSource {
-            samples: Arc::clone(&self.buffer),
-            sample_rate: self.metadata.sample_rate,
-            channels: self.metadata.num_channels,
-            position_tracker: self.position_tracker.clone(),
-        }
+    pub fn create_source(
+        &self,
+        initial_eq: Equalizer,
+        cmd_rx: Receiver<EqCommand>,
+    ) -> BufferedSource {
+        BufferedSource::new(
+            self.buffer.clone(),
+            self.metadata.sample_rate,
+            self.metadata.num_channels,
+            self.position_tracker.clone(),
+            initial_eq,
+            cmd_rx,
+        )
     }
 }
 
@@ -198,18 +217,95 @@ pub struct BufferedSource {
     sample_rate: u32,
     channels: u16,
     position_tracker: PositionTracker,
+    equalizer: DspNode<Equalizer>,
+    cmd_rx: Receiver<EqCommand>,
+
+    // Chunk Processing
+    process_buffer: Vec<f32>,
+    process_buffer_idx: usize,
+}
+
+impl BufferedSource {
+    pub fn new(
+        samples: Arc<Vec<f32>>,
+        sample_rate: u32,
+        channels: u16,
+        position_tracker: PositionTracker,
+        equalizer: Equalizer,
+        cmd_rx: Receiver<EqCommand>,
+    ) -> Self {
+        Self {
+            samples,
+            sample_rate,
+            channels,
+            position_tracker,
+            equalizer: DspNode::new(equalizer),
+            cmd_rx,
+            process_buffer: Vec::with_capacity(CHUNK_SIZE),
+            process_buffer_idx: 0,
+        }
+    }
+
+    fn fill_buffer(&mut self) -> bool {
+        self.process_buffer.clear();
+        self.process_buffer_idx = 0;
+
+        // 1. Process Pending EQ Commands (Lock-Free)
+        while let Ok(cmd) = self.cmd_rx.try_recv() {
+            match cmd {
+                EqCommand::SetEnabled(enabled) => self.equalizer.on = enabled,
+                EqCommand::UpdateFilter(idx, node) => self.equalizer.set_filter(idx, node),
+                EqCommand::SetMasterGain(g) => self.equalizer.set_master_gain(g),
+                EqCommand::SetPreset(p) => {
+                    self.equalizer.instance.update_preset(p);
+                }
+                EqCommand::UpdateAllFilters(nodes) => self.equalizer.set_all_filters(nodes),
+            }
+        }
+
+        // 2. Fetch Audio
+        let global_pos = self.position_tracker.position.load(Ordering::Relaxed);
+        if global_pos >= self.samples.len() {
+            return false;
+        }
+
+        let end_pos = (global_pos + CHUNK_SIZE).min(self.samples.len());
+        self.process_buffer
+            .extend_from_slice(&self.samples[global_pos..end_pos]);
+
+        // 3. Apply DSP only if EQ is enabled
+        if self.equalizer.on {
+            self.equalizer
+                .instance
+                .process_frame(&mut self.process_buffer);
+        }
+
+        true
+    }
 }
 
 impl Iterator for BufferedSource {
     type Item = f32;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let pos = self.position_tracker.position.load(Ordering::Relaxed);
-        if pos < self.samples.len() {
-            let sample = self.samples[pos];
+        // If we've exhausted the process buffer, refill it
+        if self.process_buffer_idx >= self.process_buffer.len() {
+            if !self.fill_buffer() {
+                return None;
+            }
+        }
+
+        // Return the next sample from our processed buffer
+        if self.process_buffer_idx < self.process_buffer.len() {
+            let sample = self.process_buffer[self.process_buffer_idx];
+            self.process_buffer_idx += 1;
+
+            // Update position tracker
+            let pos = self.position_tracker.position.load(Ordering::Relaxed);
             self.position_tracker
                 .position
                 .store(pos + 1, Ordering::Relaxed);
+
             Some(sample)
         } else {
             None

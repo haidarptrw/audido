@@ -5,6 +5,16 @@ use std::f32::consts::PI;
 
 pub const MAX_EQ_FILTERS: usize = 8;
 
+/// Commands sent from the Engine to the Audio Thread
+#[derive(Debug, Clone)]
+pub enum EqCommand {
+    SetEnabled(bool),
+    UpdateFilter(usize, FilterNode),
+    SetMasterGain(f32),
+    SetPreset(EqPreset),
+    UpdateAllFilters(Vec<FilterNode>),
+}
+
 /// Filter type: Use Direct Form II Biquad Filter
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
 pub enum FilterType {
@@ -18,6 +28,7 @@ pub enum FilterType {
     Notch,
 }
 
+#[derive(Clone, Debug)]
 pub struct FilterNode {
     pub id: i16,
     pub filter_type: FilterType,
@@ -91,7 +102,7 @@ impl Biquad {
         let w0 = 2.0 * PI * filter.freq / sample_rate;
         let cos_w0 = w0.cos();
         let alpha = w0.sin() / (2.0 * filter.q);
-        
+
         // amplitude in linear scale (converted from dB)
         // A = 10^(Adb / 40.0)
         let a = 10.0f32.powf(filter.gain / 40.0);
@@ -175,7 +186,7 @@ impl Biquad {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum EqPreset {
     Flat,
     Acoustic,
@@ -211,19 +222,24 @@ pub struct Equalizer {
     pub preset: EqPreset,
     pub filters: Vec<FilterNode>,
     /// Internal DSP state (vector of vector because one node can have multiple biquads for high order)
-    processors: Vec<Vec<Biquad>>,
+    processors: Vec<Vec<Vec<Biquad>>>, // [channel][filter][biquad]
     pub master_gain: f32,
+    num_channels: u16,
 }
 
 impl Equalizer {
-    pub fn new(sample_rate: u32) -> Self {
-        Self {
+    pub fn new(sample_rate: u32, num_channels: u16) -> Self {
+        let mut eq = Self {
             sample_rate,
             preset: EqPreset::Flat,
             filters: Vec::with_capacity(MAX_EQ_FILTERS),
-            processors: Vec::with_capacity(MAX_EQ_FILTERS),
+            processors: Vec::new(), // Initialized in rebuild
             master_gain: 1.0,
-        }
+            num_channels,
+        };
+        // Initialize processors with empty state
+        eq.rebuild_processors();
+        eq
     }
 
     pub fn process_frame(&mut self, frame: &mut [f32]) {
@@ -233,17 +249,27 @@ impl Equalizer {
             }
         }
 
-        for sample in frame.iter_mut() {
-            let mut s = *sample;
+        let num_ch = self.num_channels as usize;
+        if num_ch == 0 {
+            return;
+        }
 
-            // Run through every filter chain
-            for chain in &mut self.processors {
-                for biquad in chain {
-                    s = biquad.process(s);
+        for (i, sample) in frame.iter_mut().enumerate() {
+            let channel_idx = i % num_ch;
+
+            // Access the processor chain for this specific channel
+            if let Some(channel_filters) = self.processors.get_mut(channel_idx) {
+                let mut s = *sample;
+
+                // Pass the sample through every filter node in the chain
+                for filter_biquads in channel_filters {
+                    // Pass through every biquad (for high-order cascades)
+                    for biquad in filter_biquads {
+                        s = biquad.process(s);
+                    }
                 }
+                *sample = s;
             }
-
-            *sample = s;
         }
     }
 
@@ -261,59 +287,67 @@ impl Equalizer {
     fn rebuild_processors(&mut self) {
         self.processors.clear();
 
-        for filter_node in &self.filters {
-            // A standard Biquad is 2nd order (12dB/oct).
-            // For order 4 (24dB/oct), we need 2 biquads.
-            // For order 1 (6dB/oct), we technically need 0.5 biquads, but we treat it as order 2 with reduced slope logic
+        for _ in 0..self.num_channels {
+            let mut channel_chain = Vec::with_capacity(self.filters.len());
+            for filter_node in &self.filters {
+                // A standard Biquad is 2nd order (12dB/oct).
+                // For order 4 (24dB/oct), we need 2 biquads.
+                // For order 1 (6dB/oct), we technically need 0.5 biquads, but we treat it as order 2 with reduced slope logic
 
-            let num_biquads = (filter_node.order as f32 / 2.0).ceil() as usize;
-            let count = if num_biquads == 0 { 1 } else { num_biquads };
+                let num_biquads = (filter_node.order as f32 / 2.0).ceil() as usize;
+                let count = if num_biquads == 0 { 1 } else { num_biquads };
 
-            let mut chain = Vec::with_capacity(count);
-            for _ in 0..count {
-                let mut bq = Biquad::default();
-                bq.update(filter_node, self.sample_rate as f32);
-                chain.push(bq);
+                let mut biquads = Vec::with_capacity(count);
+                for _ in 0..count {
+                    let mut bq = Biquad::default();
+                    bq.update(filter_node, self.sample_rate as f32);
+                    biquads.push(bq);
+                }
+                channel_chain.push(biquads);
             }
-            self.processors.push(chain);
+            self.processors.push(channel_chain);
         }
     }
 
     pub fn parameters_changed(&mut self) {
-        // Only update coefficients, try to preserve state (z1, z2) to avoid popping
-        // This requires matching filters by ID or index.
-        // For simplicity here, we do a full rebuild which might click slightly.
-        // A better production approach matches existing Biquads and calls .update() on them.
-
-        if self.processors.len() != self.filters.len() {
+        // If the channel configuration doesn't match, we must do a full rebuild
+        if self.processors.len() != self.num_channels as usize {
             self.rebuild_processors();
             return;
         }
 
-        for (i, filter_node) in self.filters.iter().enumerate() {
-            let chain = &mut self.processors[i];
-
-            // If order changed, we must rebuild this specific chain
-            let required_biquads = (filter_node.order as f32 / 2.0).ceil() as usize;
-            let count = if required_biquads == 0 {
-                1
-            } else {
-                required_biquads
-            };
-
-            if chain.len() < count {
-                // Order increased: Add new biquads (zero state)
-                // Existing biquads are untouched
-                chain.resize_with(count, Biquad::default);
-            } else if chain.len() > count {
-                // Order decreased: Remove extra biquads
-                // The remaining ones keep their state
-                chain.truncate(count);
+        // Iterate over every channel to update its specific processors
+        for channel_filters in &mut self.processors {
+            // If the number of filters changed (e.g. added a band), rebuild
+            if channel_filters.len() != self.filters.len() {
+                self.rebuild_processors();
+                return;
             }
 
-            // Update coefficients for all biquads in the chain
-            for biquad in chain.iter_mut() {
-                biquad.update(filter_node, self.sample_rate as f32);
+            // Update filters inside this channel
+            for (i, filter_node) in self.filters.iter().enumerate() {
+                let biquad_chain = &mut channel_filters[i];
+
+                // Handle Order Changes (resize chain while keeping state where possible)
+                let required_biquads = (filter_node.order as f32 / 2.0).ceil() as usize;
+                let count = if required_biquads == 0 {
+                    1
+                } else {
+                    required_biquads
+                };
+
+                if biquad_chain.len() < count {
+                    // Order increased: append new zero-state biquads
+                    biquad_chain.resize_with(count, Biquad::default);
+                } else if biquad_chain.len() > count {
+                    // Order decreased: truncate but keep state of remaining
+                    biquad_chain.truncate(count);
+                }
+
+                // Update coefficients for all biquads (preserves z1/z2)
+                for biquad in biquad_chain.iter_mut() {
+                    biquad.update(filter_node, self.sample_rate as f32);
+                }
             }
         }
     }
