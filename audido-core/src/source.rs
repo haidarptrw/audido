@@ -143,6 +143,7 @@ impl AudioPlaybackData {
     }
 
     /// Get audio properties from a buffer and then assign it to the metadata
+    #[allow(unused_variables)]
     fn get_audio_properties(
         buffer: &[f32],
         num_channels: u16,
@@ -251,10 +252,21 @@ impl BufferedSource {
         // 1. Process Pending EQ Commands (Lock-Free)
         while let Ok(cmd) = self.cmd_rx.try_recv() {
             match cmd {
-                RealtimeAudioCommand::UpdateFilter(_, filter_node) => {},
-                RealtimeAudioCommand::SetAllFilters(filter_nodes) => {},
-                RealtimeAudioCommand::SetMasterGain(_) => {},
-                _ => {}
+                RealtimeAudioCommand::UpdateEqFilter(idx, filter_node) => {
+                    self.equalizer.set_filter(idx, filter_node);
+                }
+                RealtimeAudioCommand::SetAllEqFilters(filter_nodes) => {
+                    self.equalizer.set_all_filters(filter_nodes);
+                }
+                RealtimeAudioCommand::SetEqMasterGain(gain) => {
+                    self.equalizer.set_master_gain(gain);
+                }
+                RealtimeAudioCommand::SetEqPreset(preset) => {
+                    self.equalizer.instance.update_preset(preset);
+                }
+                RealtimeAudioCommand::SetEqEnabled(enabled) => {
+                    self.equalizer.on = enabled;
+                }
             }
         }
 

@@ -1,15 +1,18 @@
-use audido_core::queue::LoopMode;
+use audido_core::{dsp::eq::Equalizer, queue::LoopMode};
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
+    symbols,
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, Gauge, List, ListItem, Paragraph},
+    widgets::{
+        Axis, Block, Borders, Chart, Clear, Dataset, Gauge, GraphType, List, ListItem, Paragraph,
+    },
 };
 use strum::IntoEnumIterator;
 use tui_logger::TuiLoggerWidget;
 
-use crate::state::{ActiveTab, AppState, BrowserFileDialog};
+use crate::state::{ActiveTab, AppState, BrowserFileDialog, EqFocus, EqMode, SettingsOption};
 
 /// Draw the TUI interface
 pub fn draw(f: &mut Frame, state: &AppState) {
@@ -85,6 +88,7 @@ fn draw_main_content(f: &mut Frame, area: Rect, state: &AppState) {
         ActiveTab::Queue => draw_queue_panel(f, content_area, state),
         ActiveTab::Log => draw_log_panel(f, content_area, state),
         ActiveTab::Browser => draw_browser_panel(f, content_area, state),
+        ActiveTab::Settings => draw_settings_panel(f, content_area, state),
     }
 
     // Draw global footers on every tab
@@ -138,10 +142,10 @@ fn draw_browser_panel(f: &mut Frame, area: Rect, state: &AppState) {
     let is_active = state.active_tab == ActiveTab::Browser;
 
     // Title shows current path
-    let title = if state.current_dir.as_os_str().is_empty() {
+    let title = if state.browser.current_dir.as_os_str().is_empty() {
         " Browser: System Drives ".to_string()
     } else {
-        format!(" Browser: {} ", state.current_dir.to_string_lossy())
+        format!(" Browser: {} ", state.browser.current_dir.to_string_lossy())
     };
 
     let block = Block::default()
@@ -154,7 +158,8 @@ fn draw_browser_panel(f: &mut Frame, area: Rect, state: &AppState) {
         });
 
     let items: Vec<ListItem> = state
-        .browser_items
+        .browser
+        .items
         .iter()
         .map(|item| {
             let icon = if item.is_dir { "📁" } else { "🎵" };
@@ -182,7 +187,7 @@ fn draw_browser_panel(f: &mut Frame, area: Rect, state: &AppState) {
 
     // We must clone the state to pass mutable reference to render_stateful_widget
     // But since we can't mutate state here, we pass a clone. Ratatui uses this for offset calculation.
-    let mut list_state = state.browser_state.clone();
+    let mut list_state = state.browser.list_state.clone();
     f.render_stateful_widget(list, area, &mut list_state);
 }
 
@@ -303,6 +308,33 @@ fn draw_controls(f: &mut Frame, area: Rect, state: &AppState) {
                 Span::raw(" Quit"),
             ]
         }
+        ActiveTab::Settings => {
+            if state.eq_state.show_eq {
+                vec![
+                    Span::styled("[Enter]", Style::default().fg(Color::Yellow)),
+                    Span::raw(" Toggle EQ  "),
+                    Span::styled("[M]", Style::default().fg(Color::Yellow)),
+                    Span::raw(" Mode  "),
+                    Span::styled("[↑/↓]", Style::default().fg(Color::Yellow)),
+                    Span::raw(" Adjust Gain  "),
+                    Span::styled("[Esc]", Style::default().fg(Color::Yellow)),
+                    Span::raw(" Back  "),
+                    Span::styled("[Q]", Style::default().fg(Color::Red)),
+                    Span::raw(" Quit"),
+                ]
+            } else {
+                vec![
+                    Span::styled("[↑/↓]", Style::default().fg(Color::Yellow)),
+                    Span::raw(" Navigate  "),
+                    Span::styled("[Enter]", Style::default().fg(Color::Yellow)),
+                    Span::raw(" Select  "),
+                    Span::styled("[Tab]", Style::default().fg(Color::Magenta)),
+                    Span::raw(" Switch Tab  "),
+                    Span::styled("[Q]", Style::default().fg(Color::Red)),
+                    Span::raw(" Quit"),
+                ]
+            }
+        }
     };
 
     let paragraph = Paragraph::new(Line::from(controls))
@@ -406,7 +438,7 @@ fn draw_queue_panel(f: &mut Frame, area: Rect, state: &AppState) {
 
 /// Draw the browser file dialog overlay
 fn draw_browser_dialog(f: &mut Frame, area: Rect, state: &AppState) {
-    if let BrowserFileDialog::Open { path, selected } = &state.browser_dialog {
+    if let BrowserFileDialog::Open { path, selected } = &state.browser.dialog {
         // Calculate centered dialog area
         let dialog_width = 40;
         let dialog_height = 8;
@@ -453,4 +485,400 @@ fn draw_browser_dialog(f: &mut Frame, area: Rect, state: &AppState) {
         let paragraph = Paragraph::new(text);
         f.render_widget(paragraph, inner);
     }
+}
+
+fn draw_settings_panel(f: &mut Frame, area: Rect, state: &AppState) {
+    let is_active = state.active_tab == ActiveTab::Settings;
+
+    // If EQ panel is open, split area for settings list and EQ panel
+    if state.eq_state.show_eq {
+        let chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Percentage(35), // Settings list
+                Constraint::Percentage(65), // EQ Panel
+            ])
+            .split(area);
+
+        draw_settings_list(f, chunks[0], state, is_active);
+        draw_eq_panel(f, chunks[1], state);
+    } else {
+        draw_settings_list(f, area, state, is_active);
+    }
+}
+
+fn draw_settings_list(f: &mut Frame, area: Rect, state: &AppState, is_active: bool) {
+    let block = Block::default()
+        .title(" Settings ")
+        .borders(Borders::ALL)
+        .border_style(if is_active {
+            Style::default().fg(Color::Cyan)
+        } else {
+            Style::default().fg(Color::DarkGray)
+        });
+
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    let items: Vec<ListItem> = state
+        .settings_state
+        .items
+        .iter()
+        .enumerate()
+        .map(|(i, setting)| {
+            let is_selected =
+                state.settings_state.selected_index == i && !state.settings_state.is_dialog_open;
+
+            let value_str = match setting {
+                SettingsOption::Equalizer => {
+                    if state.eq_state.eq_enabled {
+                        "On"
+                    } else {
+                        "Off"
+                    }
+                }
+            };
+
+            let prefix = if is_selected { "▶ " } else { "  " };
+            let style = if is_selected {
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::White)
+            };
+
+            ListItem::new(Line::from(vec![
+                Span::styled(format!("{}{}", prefix, setting.label()), style),
+                Span::raw(" "),
+                Span::styled(format!("[{}]", value_str), Style::default().fg(Color::Cyan)),
+            ]))
+        })
+        .collect();
+
+    let list = List::new(items);
+    f.render_widget(list, inner);
+}
+
+fn draw_eq_panel(f: &mut Frame, area: Rect, state: &AppState) {
+    let block = Block::default()
+        .title(" Equalizer ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Magenta));
+
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    // Split EQ panel: Mode Toggle, EQ Graph, and Controls
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3), // Mode toggle row
+            Constraint::Min(8),    // EQ Graph
+            Constraint::Length(6), // EQ Controls
+        ])
+        .split(inner);
+
+    draw_eq_mode_toggle(f, chunks[0], state);
+    draw_eq_graph(f, chunks[1], state);
+    draw_eq_controls(f, chunks[2], state);
+}
+
+fn draw_eq_mode_toggle(f: &mut Frame, area: Rect, state: &AppState) {
+    let is_casual = state.eq_state.eq_mode == EqMode::Casual;
+    let is_enabled = state.eq_state.eq_enabled;
+
+    let enabled_style = if is_enabled {
+        Style::default()
+            .fg(Color::Green)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
+    };
+
+    let casual_style = if is_casual {
+        Style::default()
+            .fg(Color::Green)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::DarkGray)
+    };
+
+    let advanced_style = if !is_casual {
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::DarkGray)
+    };
+
+    let mode_line = Line::from(vec![
+        Span::styled("EQ: ", Style::default().fg(Color::White)),
+        Span::styled(if is_enabled { "ON" } else { "OFF" }, enabled_style),
+        Span::raw("  │  "),
+        Span::styled("Mode: ", Style::default().fg(Color::White)),
+        Span::styled(if is_casual { "● " } else { "○ " }, casual_style),
+        Span::styled("Casual", casual_style),
+        Span::raw("  "),
+        Span::styled(if !is_casual { "● " } else { "○ " }, advanced_style),
+        Span::styled("Advanced", advanced_style),
+        Span::raw("  │  "),
+        Span::styled("[Enter]", Style::default().fg(Color::Yellow)),
+        Span::raw(" Toggle EQ  "),
+        Span::styled("[M]", Style::default().fg(Color::Yellow)),
+        Span::raw(" Mode"),
+    ]);
+
+    let paragraph = Paragraph::new(mode_line).block(Block::default().borders(Borders::BOTTOM));
+    f.render_widget(paragraph, area);
+}
+
+fn draw_eq_controls(f: &mut Frame, area: Rect, state: &AppState) {
+    let is_casual = state.eq_state.eq_mode == EqMode::Casual;
+
+    if is_casual {
+        // Casual mode: Show preset selector and master gain
+        let chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Percentage(50), // Preset
+                Constraint::Percentage(50), // Master Gain
+            ])
+            .split(area);
+
+        // Preset selector
+        let preset_label = format!("{:?}", state.eq_state.local_preset);
+        let preset_paragraph = Paragraph::new(Line::from(vec![
+            Span::styled("Preset: ", Style::default().fg(Color::Gray)),
+            Span::styled(
+                preset_label,
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw("\n"),
+            Span::styled("[←/→]", Style::default().fg(Color::Yellow)),
+            Span::raw(" Change Preset"),
+        ]))
+        .block(Block::default().borders(Borders::ALL).title(" Preset "));
+        f.render_widget(preset_paragraph, chunks[0]);
+
+        // Master gain
+        let gain_value = state.eq_state.local_master_gain;
+        let gain_display = if gain_value >= 0.0 {
+            format!("+{:.1} dB", gain_value)
+        } else {
+            format!("{:.1} dB", gain_value)
+        };
+        let gain_paragraph = Paragraph::new(Line::from(vec![
+            Span::styled("Master: ", Style::default().fg(Color::Gray)),
+            Span::styled(
+                gain_display,
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw("\n"),
+            Span::styled("[↑/↓]", Style::default().fg(Color::Yellow)),
+            Span::raw(" Adjust Gain"),
+        ]))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" Master Gain "),
+        );
+        f.render_widget(gain_paragraph, chunks[1]);
+    } else {
+        // Advanced mode: Show filter bands with editable parameters
+        let chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Percentage(60), // Filter list
+                Constraint::Percentage(40), // Selected filter details
+            ])
+            .split(area);
+
+        // Filter band list
+        let filter_items: Vec<ListItem> = state
+            .eq_state
+            .local_filters
+            .iter()
+            .enumerate()
+            .map(|(i, filter)| {
+                let is_selected = i == state.eq_state.eq_selected_band;
+                let prefix = if is_selected { "▶ " } else { "  " };
+                let style = if is_selected {
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::White)
+                };
+                let filter_info = format!(
+                    "{}Band {}: {:?} @ {}Hz",
+                    prefix,
+                    i + 1,
+                    filter.filter_type,
+                    filter.freq as i32
+                );
+                ListItem::new(filter_info).style(style)
+            })
+            .collect();
+
+        let filter_list = if filter_items.is_empty() {
+            Paragraph::new("No filters. Press [A] to add.")
+                .style(Style::default().fg(Color::DarkGray))
+                .block(Block::default().borders(Borders::ALL).title(" Bands "))
+        } else {
+            let list = List::new(filter_items)
+                .block(Block::default().borders(Borders::ALL).title(" Bands "));
+            f.render_widget(list, chunks[0]);
+            return draw_filter_details(f, chunks[1], state);
+        };
+        f.render_widget(filter_list, chunks[0]);
+
+        // Empty details panel
+        let details = Paragraph::new("Select a band to edit")
+            .style(Style::default().fg(Color::DarkGray))
+            .block(Block::default().borders(Borders::ALL).title(" Details "));
+        f.render_widget(details, chunks[1]);
+    }
+}
+
+fn draw_filter_details(f: &mut Frame, area: Rect, state: &AppState) {
+    if state.eq_state.local_filters.is_empty() {
+        let details = Paragraph::new("No band selected")
+            .style(Style::default().fg(Color::DarkGray))
+            .block(Block::default().borders(Borders::ALL).title(" Details "));
+        f.render_widget(details, area);
+        return;
+    }
+
+    let filter = &state.eq_state.local_filters[state.eq_state.eq_selected_band];
+    let params = [
+        ("Type", format!("{:?}", filter.filter_type)),
+        ("Freq", format!("{} Hz", filter.freq as i32)),
+        ("Gain", format!("{:+.1} dB", filter.gain)),
+        ("Q", format!("{:.2}", filter.q)),
+    ];
+
+    let text: Vec<Line> = params
+        .iter()
+        .enumerate()
+        .map(|(i, (name, value))| {
+            let is_selected = i == state.eq_state.eq_selected_param
+                && state.eq_state.eq_focus == EqFocus::EditParam;
+            let style = if is_selected {
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::White)
+            };
+            Line::from(vec![
+                Span::styled(format!("{}: ", name), Style::default().fg(Color::Gray)),
+                Span::styled(value.clone(), style),
+            ])
+        })
+        .collect();
+
+    let paragraph =
+        Paragraph::new(text).block(Block::default().borders(Borders::ALL).title(" Details "));
+    f.render_widget(paragraph, area);
+}
+
+fn draw_settings_dialog(f: &mut Frame, area: Rect, state: &AppState) {
+    let selected_setting = state.settings_state.items[state.settings_state.selected_index];
+
+    let choices = match selected_setting {
+        SettingsOption::Equalizer => {
+            vec!["Enable", "Disable"]
+        }
+    };
+
+    let width = 30;
+    let height: u16 = choices.len() as u16 + 4;
+    let x = (area.width.saturating_sub(width)) / 2;
+    let y = (area.height.saturating_sub(height)) / 2;
+    let dialog_area = Rect::new(x, y, width, height);
+
+    f.render_widget(Clear, dialog_area);
+
+    let block = Block::default()
+        .title(format!(" {} ", selected_setting.label()))
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Yellow));
+
+    let inner = block.inner(dialog_area);
+    f.render_widget(block, dialog_area);
+
+    let choices_items: Vec<ListItem> = choices
+        .iter()
+        .enumerate()
+        .map(|(i, choice)| {
+            let is_selected = i == state.settings_state.dialog_selection_index;
+            let prefix = if is_selected { "● " } else { "○ " };
+            let style = if is_selected {
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::Gray)
+            };
+            ListItem::new(Span::styled(format!("{}{}", prefix, choice), style))
+        })
+        .collect();
+
+    let list = List::new(choices_items);
+    f.render_widget(list, inner);
+}
+
+fn draw_eq_graph(f: &mut Frame, area: Rect, state: &AppState) {
+    // Create a temporary Equalizer to compute the response curve
+    let mut eq = Equalizer::new(44100, state.eq_state.local_num_channels);
+    eq.filters = state.eq_state.local_filters.clone();
+    eq.master_gain = 10.0f32.powf(state.eq_state.local_master_gain / 20.0); // Convert dB to linear
+    eq.parameters_changed();
+
+    let data = eq.get_response_curve(100);
+
+    // Create Dataset
+    let data_points: Vec<(f64, f64)> = data.iter().map(|f| (f.0 as f64, f.1 as f64)).collect();
+    let datasets = vec![
+        Dataset::default()
+            .name("Response")
+            .marker(symbols::Marker::Braille)
+            .graph_type(GraphType::Line)
+            .style(Style::default().fg(Color::Cyan))
+            .data(&data_points),
+    ];
+
+    let x_labels = vec![
+        Span::styled("20", Style::default().fg(Color::Gray)),
+        Span::styled("100", Style::default().fg(Color::Gray)),
+        Span::styled("1k", Style::default().fg(Color::Gray)),
+        Span::styled("10k", Style::default().fg(Color::Gray)),
+        Span::styled("20k", Style::default().fg(Color::Gray)),
+    ];
+
+    let chart = Chart::new(datasets)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" Frequency Response "),
+        )
+        .x_axis(
+            Axis::default()
+                .title("Freq (Hz)")
+                .bounds([20.0, 20000.0])
+                .labels(x_labels),
+        )
+        .y_axis(
+            Axis::default()
+                .title("Gain (dB)")
+                .bounds([-18.0, 18.0])
+                .labels(vec![Span::raw("-18"), Span::raw("0"), Span::raw("+18")]),
+        );
+
+    f.render_widget(chart, area);
 }

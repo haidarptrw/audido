@@ -408,6 +408,37 @@ impl AudioEngine {
                     )));
                 }
             }
+            AudioCommand::EqSetEnabled(enabled) => {
+                log::info!("Setting EQ enabled: {}", enabled);
+                if let Some(ref tx) = self.rt_cmd_tx {
+                    let _ = tx.send(RealtimeAudioCommand::SetEqEnabled(enabled));
+                }
+            }
+            AudioCommand::EqSetMasterGain(gain_db) => {
+                log::info!("Setting EQ master gain: {} dB", gain_db);
+                // Convert dB to linear gain
+                let linear_gain = 10.0f32.powf(gain_db / 20.0);
+                self.eq_shadow.master_gain = linear_gain;
+                if let Some(ref tx) = self.rt_cmd_tx {
+                    let _ = tx.send(RealtimeAudioCommand::SetEqMasterGain(linear_gain));
+                }
+            }
+            AudioCommand::EqSetPreset(eq_preset) => {
+                log::info!("Setting EQ preset: {:?}", eq_preset);
+                self.eq_shadow.preset = eq_preset;
+                self.eq_shadow.parameters_changed();
+                if let Some(ref tx) = self.rt_cmd_tx {
+                    let _ = tx.send(RealtimeAudioCommand::SetEqPreset(eq_preset));
+                }
+            }
+            AudioCommand::EqSetAllFilters(filters) => {
+                log::info!("Setting all EQ filters: {} bands", filters.len());
+                self.eq_shadow.filters = filters.clone();
+                self.eq_shadow.parameters_changed();
+                if let Some(ref tx) = self.rt_cmd_tx {
+                    let _ = tx.send(RealtimeAudioCommand::SetAllEqFilters(filters));
+                }
+            }
         }
         true
     }
@@ -441,13 +472,27 @@ impl AudioEngine {
                         metadata: metadata.clone(),
                     });
 
-                    let eq = Equalizer::new(metadata.sample_rate, metadata.num_channels);
+                    // Preserve existing EQ settings for the new track
+                    let previous_filters = self.eq_shadow.filters.clone();
+                    let previous_gain = self.eq_shadow.master_gain;
+                    let previous_preset = self.eq_shadow.preset;
+
+                    let mut new_eq = Equalizer::new(metadata.sample_rate, metadata.num_channels);
+
+                    new_eq.filters = previous_filters;
+                    new_eq.master_gain = previous_gain;
+                    new_eq.preset = previous_preset;
+
+                    new_eq.parameters_changed();
+                    self.eq_shadow = new_eq.clone();
+
                     let _ = self.resp_tx.send(AudioResponse::Loaded(metadata));
                     // Start playing
                     if let Some(ref data) = self.current_audio {
                         let (rt_tx, rt_rx) = unbounded::<RealtimeAudioCommand>();
                         self.rt_cmd_tx = Some(rt_tx);
-                        self.sink.append(data.create_source(eq, rt_rx));
+                        self.sink
+                            .append(data.create_source(self.eq_shadow.clone(), rt_rx));
                         self.sink.set_volume(0.0);
                         self.sink.play();
                         self.is_playing = true;

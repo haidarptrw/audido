@@ -1,4 +1,8 @@
-use crate::{dsp::eq::{EqPreset, FilterNode}, metadata::AudioMetadata, queue::{LoopMode, QueueItem}};
+use crate::{
+    dsp::eq::{EqPreset, FilterNode},
+    metadata::AudioMetadata,
+    queue::{LoopMode, QueueItem},
+};
 
 /// Commands sent from the TUI to the audio engine
 #[derive(Debug, Clone)]
@@ -31,6 +35,14 @@ pub enum AudioCommand {
     SetLoopMode(LoopMode),
     /// Play a specific track from the queue
     PlayQueueIndex(usize),
+    /// Enable or disable the equalizer
+    EqSetEnabled(bool),
+    /// Set the EQ master gain in dB
+    EqSetMasterGain(f32),
+    /// Set the EQ preset
+    EqSetPreset(EqPreset),
+    /// Set all EQ filters
+    EqSetAllFilters(Vec<FilterNode>),
     /// Shutdown the audio engine
     Quit,
 }
@@ -47,10 +59,16 @@ pub enum AudioResponse {
     /// Audio file loaded successfully with metadata
     Loaded(AudioMetadata),
     /// Current playback position in seconds and total duration
-    Position { current: f32, total: f32 },
+    Position {
+        current: f32,
+        total: f32,
+    },
     QueueUpdated(Vec<QueueItem>),
     LoopModeChanged(LoopMode),
-    TrackChanged {index: usize, metadata: AudioMetadata},
+    TrackChanged {
+        index: usize,
+        metadata: AudioMetadata,
+    },
     /// An error occurred
     Error(String),
     /// Engine is shutting down
@@ -61,12 +79,12 @@ pub enum AudioResponse {
 #[derive(Debug, Clone)]
 pub enum RealtimeAudioCommand {
     /// Update a specific filter coefficient
-    UpdateFilter(usize, FilterNode),
+    UpdateEqFilter(usize, FilterNode),
     /// Replace all filters (e.g. changing presets)
-    SetAllFilters(Vec<FilterNode>),
+    SetAllEqFilters(Vec<FilterNode>),
     /// Update master gain (Pre-amp)
-    SetMasterGain(f32),
+    SetEqMasterGain(f32),
     /// Set the equalizer to a specific preset
-    SetPreset(EqPreset),
+    SetEqPreset(EqPreset),
     SetEqEnabled(bool),
 }

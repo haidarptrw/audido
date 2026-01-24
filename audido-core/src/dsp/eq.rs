@@ -43,6 +43,42 @@ impl FilterNode {
             order: 2,
         }
     }
+
+    pub fn magnitude_db(&self, frequency_hz: f32, sample_rate: f32) -> f32 {
+        // ensure that frequency is not below zero or greater than nyquist frequency
+        if frequency_hz <= 0.0 || frequency_hz >= sample_rate / 2.0 {
+            return 0.0;
+        }
+
+        let w0 = 2.0 * PI * self.freq / sample_rate;
+        let cos_w0 = w0.cos();
+        let alpha = w0.sin() / (2.0 * self.q);
+        let a_linear = 10.0f32.powf(self.gain / 40.0);
+
+        let (b0, b1, b2, a0, a1, a2) =
+            Biquad::calculate_coefficients(cos_w0, alpha, a_linear, self.filter_type);
+
+        // Evaluate Transfer Function H(z) at z = e^(jw)
+        // w (omega) for the target frequency
+        let w = 2.0 * std::f32::consts::PI * frequency_hz / sample_rate;
+        let cos_w = w.cos();
+        let cos_2w = (2.0 * w).cos();
+        let sin_w = w.sin();
+        let sin_2w = (2.0 * w).sin();
+
+        // Numerator (b part) real and imag
+        let num_r = b0 + b1 * cos_w + b2 * cos_2w;
+        let num_i = b1 * sin_w + b2 * sin_2w;
+
+        // Denominator (a part) real and imag
+        let den_r = a0 + a1 * cos_w + a2 * cos_2w;
+        let den_i = a1 * sin_w + a2 * sin_2w;
+
+        let mag_sq = (num_r * num_r + num_i * num_i) / (den_r * den_r + den_i * den_i);
+
+        // Convert to dB: 10 * log10(mag_sq) which is 20 * log10(mag)
+        10.0 * mag_sq.log10()
+    }
 }
 
 impl Default for FilterNode {
@@ -176,8 +212,9 @@ impl Biquad {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum EqPreset {
+    #[default]
     Flat,
     Acoustic,
     Dance,
@@ -187,13 +224,29 @@ pub enum EqPreset {
     // ...
 }
 
+fn create_flat_filters() -> Vec<FilterNode> {
+    let mut filters = Vec::with_capacity(MAX_EQ_FILTERS);
+    let freqs = [40.0, 200.0, 500.0, 1000., 2000., 10000., 15000.];
+    for i in 0..MAX_EQ_FILTERS {
+        filters.push(FilterNode {
+            id: i as i16,
+            filter_type: FilterType::Peaking,
+            freq: *freqs.get(i).unwrap_or(&1000.0),
+            gain: 0.0,
+            q: 0.707,
+            order: 2,
+        });
+    }
+    filters
+}
+
 impl EqPreset {
     pub fn set_filters(&self) -> Vec<FilterNode> {
         match self {
-            EqPreset::Flat => vec![],
-            EqPreset::Acoustic => vec![],
-            EqPreset::Dance => vec![],
-            EqPreset::Electronic => vec![],
+            EqPreset::Flat => create_flat_filters(),
+            EqPreset::Acoustic => create_flat_filters(),
+            EqPreset::Dance => create_flat_filters(),
+            EqPreset::Electronic => create_flat_filters(),
             EqPreset::BassBoosted => vec![FilterNode {
                 id: 1,
                 filter_type: FilterType::LowShelf,
@@ -202,7 +255,7 @@ impl EqPreset {
                 q: 0.707,
                 order: 2,
             }],
-            EqPreset::Custom => vec![],
+            EqPreset::Custom => create_flat_filters(),
         }
     }
 }
@@ -220,15 +273,16 @@ pub struct Equalizer {
 
 impl Equalizer {
     pub fn new(sample_rate: u32, num_channels: u16) -> Self {
+        let preset = EqPreset::Flat;
         let mut eq = Self {
             sample_rate,
-            preset: EqPreset::Flat,
-            filters: Vec::with_capacity(MAX_EQ_FILTERS),
+            preset,
+            filters: preset.set_filters(),
             processors: Vec::new(), // Initialized in rebuild
             master_gain: 1.0,
             num_channels,
         };
-        // Initialize processors with empty state
+        // Initialize processors based on initial filters
         eq.rebuild_processors();
         eq
     }
@@ -341,5 +395,32 @@ impl Equalizer {
                 }
             }
         }
+    }
+
+    /// Get the combined frequency response curve for plotting
+    /// Returns Vector of (Frequency, Gain_dB) points
+    pub fn get_response_curve(&self, width: usize) -> Vec<(f32, f32)> {
+        let mut points = Vec::with_capacity(width);
+
+        let start_freq: f32 = 20.0;
+        let end_freq: f32 = 20000.0;
+        let log_start = start_freq.ln();
+        let log_end = end_freq.ln();
+        let step = (log_end - log_start) / (width as f32 - 1.0);
+
+        // convert master gain to dB
+        let master_gain_db = 20.0 * (self.master_gain).log10();
+
+        for i in 0..width {
+            let log_f = log_start + step * i as f32;
+            let f = log_f.exp();
+            let mut total_db = master_gain_db;
+            for filter in &self.filters {
+                total_db += filter.magnitude_db(filter.freq, self.sample_rate as f32);
+            }
+            points.push((f, total_db));
+        }
+
+        points
     }
 }
