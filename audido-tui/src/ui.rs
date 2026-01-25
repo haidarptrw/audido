@@ -15,7 +15,7 @@ use tui_logger::TuiLoggerWidget;
 use crate::state::{ActiveTab, AppState, BrowserFileDialog, EqFocus, EqMode, SettingsOption};
 
 /// Draw the TUI interface
-pub fn draw(f: &mut Frame, state: &AppState) {
+pub fn draw(f: &mut Frame, state: &AppState, router: &crate::router::Router) {
     // Main horizontal split: Sidebar (left) and Main Content (right)
     let main_chunks = Layout::default()
         .direction(Direction::Horizontal)
@@ -26,8 +26,8 @@ pub fn draw(f: &mut Frame, state: &AppState) {
         ])
         .split(f.area());
 
-    draw_sidebar(f, main_chunks[0], state);
-    draw_main_content(f, main_chunks[1], state);
+    draw_sidebar(f, main_chunks[0], state, router);
+    draw_main_content(f, main_chunks[1], state, router);
 
     // Draw dialog overlay if open
     if state.is_dialog_open() {
@@ -36,7 +36,7 @@ pub fn draw(f: &mut Frame, state: &AppState) {
 }
 
 /// Draw the sidebar navigation
-fn draw_sidebar(f: &mut Frame, area: Rect, state: &AppState) {
+fn draw_sidebar(f: &mut Frame, area: Rect, state: &AppState, router: &crate::router::Router) {
     let block = Block::default()
         .title(" Navigation ")
         .borders(Borders::ALL)
@@ -45,10 +45,12 @@ fn draw_sidebar(f: &mut Frame, area: Rect, state: &AppState) {
     let inner = block.inner(area);
     f.render_widget(block, area);
 
-    // Navigation items - generated from ActiveTab enum
-    let nav_text: Vec<Line> = ActiveTab::iter()
-        .map(|tab| {
-            let is_active = state.active_tab == tab;
+    // Navigation items - generated from router tab names
+    let current_route_name = router.current().name();
+    let nav_text: Vec<Line> = crate::router::tab_names()
+        .iter()
+        .map(|tab_name| {
+            let is_active = *tab_name == current_route_name;
             let prefix = if is_active { "▶ " } else { "  " };
             let style = if is_active {
                 Style::default()
@@ -57,7 +59,7 @@ fn draw_sidebar(f: &mut Frame, area: Rect, state: &AppState) {
             } else {
                 Style::default().fg(Color::Gray)
             };
-            Line::from(Span::styled(format!("{}{}", prefix, tab), style))
+            Line::from(Span::styled(format!("{}{}", prefix, tab_name), style))
         })
         .collect();
 
@@ -65,8 +67,8 @@ fn draw_sidebar(f: &mut Frame, area: Rect, state: &AppState) {
     f.render_widget(paragraph, inner);
 }
 
-/// Draw the main content area based on active tab
-fn draw_main_content(f: &mut Frame, area: Rect, state: &AppState) {
+/// Draw the main content area based on active route
+fn draw_main_content(f: &mut Frame, area: Rect, state: &AppState, router: &crate::router::Router) {
     // Split the main area into Content (top) and Footer (bottom)
     // Footer contains Controls (3 lines) and Status (3 lines)
     let chunks = Layout::default()
@@ -82,22 +84,16 @@ fn draw_main_content(f: &mut Frame, area: Rect, state: &AppState) {
     let controls_area = chunks[1];
     let status_area = chunks[2];
 
-    // Draw the specific panel in the top content area
-    match state.active_tab {
-        ActiveTab::Playback => draw_playback_panel(f, content_area, state),
-        ActiveTab::Queue => draw_queue_panel(f, content_area, state),
-        ActiveTab::Log => draw_log_panel(f, content_area, state),
-        ActiveTab::Browser => draw_browser_panel(f, content_area, state),
-        ActiveTab::Settings => draw_settings_panel(f, content_area, state),
-    }
+    // Draw the specific panel via the router
+    router.current().render(f, content_area, state);
 
     // Draw global footers on every tab
-    draw_controls(f, controls_area, state);
+    draw_controls(f, controls_area, state, router);
     draw_status(f, status_area, state);
 }
 
 /// Draw the playback panel
-fn draw_playback_panel(f: &mut Frame, area: Rect, state: &AppState) {
+pub fn draw_playback_panel(f: &mut Frame, area: Rect, state: &AppState) {
     let is_active = state.active_tab == ActiveTab::Playback;
 
     let chunks = Layout::default()
@@ -115,7 +111,7 @@ fn draw_playback_panel(f: &mut Frame, area: Rect, state: &AppState) {
 }
 
 /// Draw the log panel
-fn draw_log_panel(f: &mut Frame, area: Rect, state: &AppState) {
+pub fn draw_log_panel(f: &mut Frame, area: Rect, state: &AppState) {
     let is_active = state.active_tab == ActiveTab::Log;
 
     let border_style = if is_active {
@@ -138,7 +134,7 @@ fn draw_log_panel(f: &mut Frame, area: Rect, state: &AppState) {
     f.render_widget(log_widget, area);
 }
 
-fn draw_browser_panel(f: &mut Frame, area: Rect, state: &AppState) {
+pub fn draw_browser_panel(f: &mut Frame, area: Rect, state: &AppState) {
     let is_active = state.active_tab == ActiveTab::Browser;
 
     // Title shows current path
@@ -252,9 +248,10 @@ fn draw_progress(f: &mut Frame, area: Rect, state: &AppState) {
 }
 
 /// Draw the controls help section
-fn draw_controls(f: &mut Frame, area: Rect, state: &AppState) {
-    let controls = match state.active_tab {
-        ActiveTab::Playback => {
+fn draw_controls(f: &mut Frame, area: Rect, state: &AppState, router: &crate::router::Router) {
+    let route_name = router.current().name();
+    let controls = match route_name {
+        "Playback" => {
             vec![
                 Span::styled("[Space]", Style::default().fg(Color::Yellow)),
                 Span::raw(" Play/Pause  "),
@@ -270,7 +267,7 @@ fn draw_controls(f: &mut Frame, area: Rect, state: &AppState) {
                 Span::raw(" Quit"),
             ]
         }
-        ActiveTab::Queue => {
+        "Queue" => {
             vec![
                 Span::styled("[↑/↓]", Style::default().fg(Color::Yellow)),
                 Span::raw(" Navigate  "),
@@ -286,7 +283,7 @@ fn draw_controls(f: &mut Frame, area: Rect, state: &AppState) {
                 Span::raw(" Quit"),
             ]
         }
-        ActiveTab::Log => {
+        "Log" => {
             vec![
                 Span::styled("[↑/↓]", Style::default().fg(Color::Yellow)),
                 Span::raw(" Scroll  "),
@@ -296,7 +293,7 @@ fn draw_controls(f: &mut Frame, area: Rect, state: &AppState) {
                 Span::raw(" Quit"),
             ]
         }
-        ActiveTab::Browser => {
+        "Browser" | "File Options" => {
             vec![
                 Span::styled("[↑/↓]", Style::default().fg(Color::Yellow)),
                 Span::raw(" Nav  "),
@@ -308,32 +305,39 @@ fn draw_controls(f: &mut Frame, area: Rect, state: &AppState) {
                 Span::raw(" Quit"),
             ]
         }
-        ActiveTab::Settings => {
-            if state.eq_state.show_eq {
-                vec![
-                    Span::styled("[Enter]", Style::default().fg(Color::Yellow)),
-                    Span::raw(" Toggle EQ  "),
-                    Span::styled("[M]", Style::default().fg(Color::Yellow)),
-                    Span::raw(" Mode  "),
-                    Span::styled("[↑/↓]", Style::default().fg(Color::Yellow)),
-                    Span::raw(" Adjust Gain  "),
-                    Span::styled("[Esc]", Style::default().fg(Color::Yellow)),
-                    Span::raw(" Back  "),
-                    Span::styled("[Q]", Style::default().fg(Color::Red)),
-                    Span::raw(" Quit"),
-                ]
-            } else {
-                vec![
-                    Span::styled("[↑/↓]", Style::default().fg(Color::Yellow)),
-                    Span::raw(" Navigate  "),
-                    Span::styled("[Enter]", Style::default().fg(Color::Yellow)),
-                    Span::raw(" Select  "),
-                    Span::styled("[Tab]", Style::default().fg(Color::Magenta)),
-                    Span::raw(" Switch Tab  "),
-                    Span::styled("[Q]", Style::default().fg(Color::Red)),
-                    Span::raw(" Quit"),
-                ]
-            }
+        "Settings" => {
+            vec![
+                Span::styled("[↑/↓]", Style::default().fg(Color::Yellow)),
+                Span::raw(" Navigate  "),
+                Span::styled("[Enter]", Style::default().fg(Color::Yellow)),
+                Span::raw(" Select  "),
+                Span::styled("[Tab]", Style::default().fg(Color::Magenta)),
+                Span::raw(" Switch Tab  "),
+                Span::styled("[Q]", Style::default().fg(Color::Red)),
+                Span::raw(" Quit"),
+            ]
+        }
+        "Equalizer" => {
+            vec![
+                Span::styled("[Enter]", Style::default().fg(Color::Yellow)),
+                Span::raw(" Toggle EQ  "),
+                Span::styled("[M]", Style::default().fg(Color::Yellow)),
+                Span::raw(" Mode  "),
+                Span::styled("[↑/↓]", Style::default().fg(Color::Yellow)),
+                Span::raw(" Adjust Gain  "),
+                Span::styled("[Esc]", Style::default().fg(Color::Yellow)),
+                Span::raw(" Back  "),
+                Span::styled("[Q]", Style::default().fg(Color::Red)),
+                Span::raw(" Quit"),
+            ]
+        }
+        _ => {
+            vec![
+                Span::styled("[Tab]", Style::default().fg(Color::Magenta)),
+                Span::raw(" Switch Tab  "),
+                Span::styled("[Q]", Style::default().fg(Color::Red)),
+                Span::raw(" Quit"),
+            ]
         }
     };
 
@@ -375,7 +379,7 @@ fn draw_status(f: &mut Frame, area: Rect, state: &AppState) {
 }
 
 /// Draw the queue panel
-fn draw_queue_panel(f: &mut Frame, area: Rect, state: &AppState) {
+pub fn draw_queue_panel(f: &mut Frame, area: Rect, state: &AppState) {
     let is_active = state.active_tab == ActiveTab::Queue;
 
     let title = format!(" Queue ({} tracks) ", state.queue.len());
@@ -487,7 +491,7 @@ fn draw_browser_dialog(f: &mut Frame, area: Rect, state: &AppState) {
     }
 }
 
-fn draw_settings_panel(f: &mut Frame, area: Rect, state: &AppState) {
+pub fn draw_settings_panel(f: &mut Frame, area: Rect, state: &AppState) {
     let is_active = state.active_tab == ActiveTab::Settings;
 
     // If EQ panel is open, split area for settings list and EQ panel
@@ -560,7 +564,7 @@ fn draw_settings_list(f: &mut Frame, area: Rect, state: &AppState, is_active: bo
     f.render_widget(list, inner);
 }
 
-fn draw_eq_panel(f: &mut Frame, area: Rect, state: &AppState) {
+pub fn draw_eq_panel(f: &mut Frame, area: Rect, state: &AppState) {
     let block = Block::default()
         .title(" Equalizer ")
         .borders(Borders::ALL)

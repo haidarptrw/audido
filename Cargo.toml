@@ -1,6 +1,6 @@
 [workspace]
 version =  "0.1."
-members = ["audido-core", "audido-tui"]
+members = ["audido-core", "audido-macros", "audido-tui"]
 default-members = ["audido-tui"]
 resolver = "2"
 
