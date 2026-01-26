@@ -159,6 +159,8 @@ dependencies = [
  "rodio",
  "rubato",
  "rustfft",
+ "strum",
+ "strum_macros",
  "symphonia",
  "thiserror 2.0.18",
  "tokio",

@@ -33,6 +33,7 @@ pub struct AudioEngine {
     queue: PlaybackQueue,
     // Realtime audio command sender (receiver is owned by BufferedSource)
     eq_shadow: Equalizer,
+    eq_enabled: bool,
     rt_cmd_tx: Option<Sender<RealtimeAudioCommand>>,
 }
 
@@ -75,6 +76,7 @@ impl AudioEngine {
             target_volume: 1.0,
             queue: PlaybackQueue::new(),
             eq_shadow: Equalizer::new(44100, 2),
+            eq_enabled: false,
             rt_cmd_tx: None,
         };
 
@@ -227,7 +229,7 @@ impl AudioEngine {
                         new_eq.preset = previous_preset;
 
                         new_eq.parameters_changed();
-                        self.eq_shadow = new_eq.clone();
+                        self.eq_shadow = new_eq;
 
                         self.current_audio = Some(audio_data);
                         let _ = self.resp_tx.send(AudioResponse::Loaded(metadata.clone()));
@@ -237,8 +239,11 @@ impl AudioEngine {
                             let (rt_tx, rt_rx) = unbounded::<RealtimeAudioCommand>();
                             self.rt_cmd_tx = Some(rt_tx);
 
-                            self.sink
-                                .append(data.create_source(self.eq_shadow.clone(), rt_rx));
+                            self.sink.append(data.create_source(
+                                self.eq_shadow.clone(),
+                                self.eq_enabled,
+                                rt_rx,
+                            ));
                             self.sink.set_volume(0.0);
                             self.sink.play();
                             self.is_playing = true;
@@ -259,18 +264,17 @@ impl AudioEngine {
                     if self.sink.empty() {
                         let (rt_tx, rt_rx) = unbounded::<RealtimeAudioCommand>();
                         self.rt_cmd_tx = Some(rt_tx);
-                        self.sink
-                            .append(audio_data.create_source(self.eq_shadow.clone(), rt_rx));
+                        self.sink.append(audio_data.create_source(
+                            self.eq_shadow.clone(),
+                            self.eq_enabled,
+                            rt_rx,
+                        ));
                     }
                     if !self.is_playing {
-                        // Start silent
                         self.sink.set_volume(0.0);
                         self.sink.play();
                         self.is_playing = true;
-
                         let _ = self.resp_tx.send(AudioResponse::Playing);
-
-                        // Fade in
                         self.perform_fade_in();
                     }
                 } else {
@@ -327,8 +331,11 @@ impl AudioEngine {
                     // Create and append new source (starts from tracked position)
                     let (rt_tx, rt_rx) = unbounded::<RealtimeAudioCommand>();
                     self.rt_cmd_tx = Some(rt_tx);
-                    self.sink
-                        .append(audio_data.create_source(self.eq_shadow.clone(), rt_rx));
+                    self.sink.append(audio_data.create_source(
+                        self.eq_shadow.clone(),
+                        self.eq_enabled,
+                        rt_rx,
+                    ));
 
                     if should_play {
                         self.sink.set_volume(self.target_volume);
@@ -366,9 +373,21 @@ impl AudioEngine {
             }
             AudioCommand::AddToQueue(paths) => {
                 log::info!("Adding {} items to queue", paths.len());
+                let was_empty = self.queue.items.is_empty();
                 let path_bufs: Vec<std::path::PathBuf> =
                     paths.into_iter().map(|s| s.into()).collect();
                 self.queue.add(path_bufs);
+
+                // Auto-play if not already playing and not paused
+                if !self.is_playing && !self.sink.is_paused() {
+                    if was_empty {
+                        self.play_queue_track(0);
+                    } else if let Some(next_idx) = self.queue.next_index() {
+                        // This handles the case where the queue had ended
+                        self.play_queue_track(next_idx);
+                    }
+                }
+
                 self.send_queue_update();
             }
             AudioCommand::RemoveFromQueue(id) => {
@@ -410,6 +429,7 @@ impl AudioEngine {
             }
             AudioCommand::EqSetEnabled(enabled) => {
                 log::info!("Setting EQ enabled: {}", enabled);
+                self.eq_enabled = enabled;
                 if let Some(ref tx) = self.rt_cmd_tx {
                     let _ = tx.send(RealtimeAudioCommand::SetEqEnabled(enabled));
                 }
@@ -484,15 +504,18 @@ impl AudioEngine {
                     new_eq.preset = previous_preset;
 
                     new_eq.parameters_changed();
-                    self.eq_shadow = new_eq.clone();
+                    self.eq_shadow = new_eq;
 
                     let _ = self.resp_tx.send(AudioResponse::Loaded(metadata));
                     // Start playing
                     if let Some(ref data) = self.current_audio {
                         let (rt_tx, rt_rx) = unbounded::<RealtimeAudioCommand>();
                         self.rt_cmd_tx = Some(rt_tx);
-                        self.sink
-                            .append(data.create_source(self.eq_shadow.clone(), rt_rx));
+                        self.sink.append(data.create_source(
+                            self.eq_shadow.clone(),
+                            self.eq_enabled,
+                            rt_rx,
+                        ));
                         self.sink.set_volume(0.0);
                         self.sink.play();
                         self.is_playing = true;

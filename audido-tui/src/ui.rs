@@ -9,10 +9,9 @@ use ratatui::{
         Axis, Block, Borders, Chart, Clear, Dataset, Gauge, GraphType, List, ListItem, Paragraph,
     },
 };
-use strum::IntoEnumIterator;
 use tui_logger::TuiLoggerWidget;
 
-use crate::state::{ActiveTab, AppState, BrowserFileDialog, EqFocus, EqMode, SettingsOption};
+use crate::state::{AppState, BrowserFileDialog, EqFocus, EqMode, SettingsOption};
 
 /// Draw the TUI interface
 pub fn draw(f: &mut Frame, state: &AppState, router: &crate::router::Router) {
@@ -36,7 +35,7 @@ pub fn draw(f: &mut Frame, state: &AppState, router: &crate::router::Router) {
 }
 
 /// Draw the sidebar navigation
-fn draw_sidebar(f: &mut Frame, area: Rect, state: &AppState, router: &crate::router::Router) {
+fn draw_sidebar(f: &mut Frame, area: Rect, _state: &AppState, router: &crate::router::Router) {
     let block = Block::default()
         .title(" Navigation ")
         .borders(Borders::ALL)
@@ -94,7 +93,8 @@ fn draw_main_content(f: &mut Frame, area: Rect, state: &AppState, router: &crate
 
 /// Draw the playback panel
 pub fn draw_playback_panel(f: &mut Frame, area: Rect, state: &AppState) {
-    let is_active = state.active_tab == ActiveTab::Playback;
+    // Panel is active when rendered (router-based system)
+    let is_active = true;
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -111,8 +111,9 @@ pub fn draw_playback_panel(f: &mut Frame, area: Rect, state: &AppState) {
 }
 
 /// Draw the log panel
-pub fn draw_log_panel(f: &mut Frame, area: Rect, state: &AppState) {
-    let is_active = state.active_tab == ActiveTab::Log;
+pub fn draw_log_panel(f: &mut Frame, area: Rect, _state: &AppState) {
+    // Panel is active when rendered (router-based system)
+    let is_active = true;
 
     let border_style = if is_active {
         Style::default()
@@ -135,7 +136,8 @@ pub fn draw_log_panel(f: &mut Frame, area: Rect, state: &AppState) {
 }
 
 pub fn draw_browser_panel(f: &mut Frame, area: Rect, state: &AppState) {
-    let is_active = state.active_tab == ActiveTab::Browser;
+    // Panel is active when rendered (router-based system)
+    let is_active = true;
 
     // Title shows current path
     let title = if state.browser.current_dir.as_os_str().is_empty() {
@@ -248,7 +250,7 @@ fn draw_progress(f: &mut Frame, area: Rect, state: &AppState) {
 }
 
 /// Draw the controls help section
-fn draw_controls(f: &mut Frame, area: Rect, state: &AppState, router: &crate::router::Router) {
+fn draw_controls(f: &mut Frame, area: Rect, _state: &AppState, router: &crate::router::Router) {
     let route_name = router.current().name();
     let controls = match route_name {
         "Playback" => {
@@ -319,12 +321,14 @@ fn draw_controls(f: &mut Frame, area: Rect, state: &AppState, router: &crate::ro
         }
         "Equalizer" => {
             vec![
-                Span::styled("[Enter]", Style::default().fg(Color::Yellow)),
-                Span::raw(" Toggle EQ  "),
+                Span::styled("[←/→]", Style::default().fg(Color::Yellow)),
+                Span::raw(" Focus  "),
+                Span::styled("[T]", Style::default().fg(Color::Yellow)),
+                Span::raw(" Toggle  "),
                 Span::styled("[M]", Style::default().fg(Color::Yellow)),
                 Span::raw(" Mode  "),
-                Span::styled("[↑/↓]", Style::default().fg(Color::Yellow)),
-                Span::raw(" Adjust Gain  "),
+                Span::styled("[A]", Style::default().fg(Color::Yellow)),
+                Span::raw(" Add  "),
                 Span::styled("[Esc]", Style::default().fg(Color::Yellow)),
                 Span::raw(" Back  "),
                 Span::styled("[Q]", Style::default().fg(Color::Red)),
@@ -380,7 +384,8 @@ fn draw_status(f: &mut Frame, area: Rect, state: &AppState) {
 
 /// Draw the queue panel
 pub fn draw_queue_panel(f: &mut Frame, area: Rect, state: &AppState) {
-    let is_active = state.active_tab == ActiveTab::Queue;
+    // Panel is active when rendered (router-based system)
+    let is_active = true;
 
     let title = format!(" Queue ({} tracks) ", state.queue.len());
     let block = Block::default()
@@ -492,7 +497,8 @@ fn draw_browser_dialog(f: &mut Frame, area: Rect, state: &AppState) {
 }
 
 pub fn draw_settings_panel(f: &mut Frame, area: Rect, state: &AppState) {
-    let is_active = state.active_tab == ActiveTab::Settings;
+    // Panel is active when rendered (router-based system)
+    let is_active = true;
 
     // If EQ panel is open, split area for settings list and EQ panel
     if state.eq_state.show_eq {
@@ -627,7 +633,7 @@ fn draw_eq_mode_toggle(f: &mut Frame, area: Rect, state: &AppState) {
         Span::styled(if !is_casual { "● " } else { "○ " }, advanced_style),
         Span::styled("Advanced", advanced_style),
         Span::raw("  │  "),
-        Span::styled("[Enter]", Style::default().fg(Color::Yellow)),
+        Span::styled("[T]", Style::default().fg(Color::Yellow)),
         Span::raw(" Toggle EQ  "),
         Span::styled("[M]", Style::default().fg(Color::Yellow)),
         Span::raw(" Mode"),
@@ -650,6 +656,16 @@ fn draw_eq_controls(f: &mut Frame, area: Rect, state: &AppState) {
             ])
             .split(area);
 
+        // Determine if band panel is focused
+        let is_band_focused = state.eq_state.eq_focus == EqFocus::BandPanel;
+        let band_border_style = if is_band_focused {
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(Color::DarkGray)
+        };
+
         // Preset selector
         let preset_label = format!("{:?}", state.eq_state.local_preset);
         let preset_paragraph = Paragraph::new(Line::from(vec![
@@ -661,10 +677,16 @@ fn draw_eq_controls(f: &mut Frame, area: Rect, state: &AppState) {
                     .add_modifier(Modifier::BOLD),
             ),
             Span::raw("\n"),
-            Span::styled("[←/→]", Style::default().fg(Color::Yellow)),
+            Span::styled("[↑/↓]", Style::default().fg(Color::Yellow)),
             Span::raw(" Change Preset"),
         ]))
-        .block(Block::default().borders(Borders::ALL).title(" Preset "));
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" Preset ")
+                .border_style(band_border_style),
+        );
+
         f.render_widget(preset_paragraph, chunks[0]);
 
         // Master gain
@@ -702,6 +724,16 @@ fn draw_eq_controls(f: &mut Frame, area: Rect, state: &AppState) {
             ])
             .split(area);
 
+        // Determine if band panel is focused
+        let is_band_focused = state.eq_state.eq_focus == EqFocus::BandPanel;
+        let band_border_style = if is_band_focused {
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(Color::DarkGray)
+        };
+
         // Filter band list
         let filter_items: Vec<ListItem> = state
             .eq_state
@@ -732,11 +764,23 @@ fn draw_eq_controls(f: &mut Frame, area: Rect, state: &AppState) {
         let filter_list = if filter_items.is_empty() {
             Paragraph::new("No filters. Press [A] to add.")
                 .style(Style::default().fg(Color::DarkGray))
-                .block(Block::default().borders(Borders::ALL).title(" Bands "))
+                .block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .border_style(band_border_style)
+                        .title(" Bands (↑↓ Select) "),
+                )
         } else {
-            let list = List::new(filter_items)
-                .block(Block::default().borders(Borders::ALL).title(" Bands "));
-            f.render_widget(list, chunks[0]);
+            let list = List::new(filter_items).block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(band_border_style)
+                    .title(" Bands (↑↓ Select) "),
+            );
+
+            let mut list_state = ratatui::widgets::ListState::default();
+            list_state.select(Some(state.eq_state.eq_selected_band));
+            f.render_stateful_widget(list, chunks[0], &mut list_state);
             return draw_filter_details(f, chunks[1], state);
         };
         f.render_widget(filter_list, chunks[0]);
@@ -768,20 +812,10 @@ fn draw_filter_details(f: &mut Frame, area: Rect, state: &AppState) {
 
     let text: Vec<Line> = params
         .iter()
-        .enumerate()
-        .map(|(i, (name, value))| {
-            let is_selected = i == state.eq_state.eq_selected_param
-                && state.eq_state.eq_focus == EqFocus::EditParam;
-            let style = if is_selected {
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                Style::default().fg(Color::White)
-            };
+        .map(|(name, value)| {
             Line::from(vec![
                 Span::styled(format!("{}: ", name), Style::default().fg(Color::Gray)),
-                Span::styled(value.clone(), style),
+                Span::styled(value.clone(), Style::default().fg(Color::White)),
             ])
         })
         .collect();
@@ -791,6 +825,7 @@ fn draw_filter_details(f: &mut Frame, area: Rect, state: &AppState) {
     f.render_widget(paragraph, area);
 }
 
+#[allow(dead_code)]
 fn draw_settings_dialog(f: &mut Frame, area: Rect, state: &AppState) {
     let selected_setting = state.settings_state.items[state.settings_state.selected_index];
 
@@ -839,15 +874,37 @@ fn draw_settings_dialog(f: &mut Frame, area: Rect, state: &AppState) {
 
 fn draw_eq_graph(f: &mut Frame, area: Rect, state: &AppState) {
     // Create a temporary Equalizer to compute the response curve
-    let mut eq = Equalizer::new(44100, state.eq_state.local_num_channels);
+    let sample_rate = state.metadata.as_ref().map_or(44100, |m| m.sample_rate);
+    let mut eq = Equalizer::new(sample_rate, state.eq_state.local_num_channels);
     eq.filters = state.eq_state.local_filters.clone();
     eq.master_gain = 10.0f32.powf(state.eq_state.local_master_gain / 20.0); // Convert dB to linear
     eq.parameters_changed();
 
     let data = eq.get_response_curve(100);
 
-    // Create Dataset
-    let data_points: Vec<(f64, f64)> = data.iter().map(|f| (f.0 as f64, f.1 as f64)).collect();
+    // Transform to log scale for x-axis (frequency)
+    // log10(20) ≈ 1.3, log10(20000) ≈ 4.3
+    let data_points: Vec<(f64, f64)> = data
+        .iter()
+        .map(|(freq, db)| ((*freq as f64).log10(), *db as f64))
+        .collect();
+
+    // Create filter center points for visualization (also in log scale)
+    let filter_points: Vec<(f64, f64)> = state
+        .eq_state
+        .local_filters
+        .iter()
+        .map(|filter| {
+            // Calculate the total response at the filter's center frequency
+            // local_master_gain is already in dB, so use it directly
+            let mut total_db = state.eq_state.local_master_gain;
+            for flt in &state.eq_state.local_filters {
+                total_db += flt.magnitude_db(filter.freq, sample_rate as f32);
+            }
+            ((filter.freq as f64).log10(), total_db as f64)
+        })
+        .collect();
+
     let datasets = vec![
         Dataset::default()
             .name("Response")
@@ -855,26 +912,44 @@ fn draw_eq_graph(f: &mut Frame, area: Rect, state: &AppState) {
             .graph_type(GraphType::Line)
             .style(Style::default().fg(Color::Cyan))
             .data(&data_points),
+        Dataset::default()
+            .name("Filters")
+            .marker(symbols::Marker::Dot)
+            .graph_type(GraphType::Scatter)
+            .style(Style::default().fg(Color::Yellow))
+            .data(&filter_points),
     ];
 
+    // Labels must be evenly spaced in log scale for proper alignment
+    // 20 → 200 → 2000 → 20000 (each is 10x, so 1.0 apart in log10)
     let x_labels = vec![
         Span::styled("20", Style::default().fg(Color::Gray)),
-        Span::styled("100", Style::default().fg(Color::Gray)),
-        Span::styled("1k", Style::default().fg(Color::Gray)),
-        Span::styled("10k", Style::default().fg(Color::Gray)),
+        Span::styled("200", Style::default().fg(Color::Gray)),
+        Span::styled("2k", Style::default().fg(Color::Gray)),
         Span::styled("20k", Style::default().fg(Color::Gray)),
     ];
+
+    // Determine border style based on focus
+    let is_focused = state.eq_state.eq_focus == EqFocus::CurvePanel;
+    let border_style = if is_focused {
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::DarkGray)
+    };
 
     let chart = Chart::new(datasets)
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title(" Frequency Response "),
+                .border_style(border_style)
+                .title(" Frequency Response (↑↓ Gain) "),
         )
         .x_axis(
             Axis::default()
                 .title("Freq (Hz)")
-                .bounds([20.0, 20000.0])
+                .bounds([20.0_f64.log10(), 20000.0_f64.log10()]) // ~1.3 to ~4.3
                 .labels(x_labels),
         )
         .y_axis(

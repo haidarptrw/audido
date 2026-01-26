@@ -197,6 +197,7 @@ impl AudioPlaybackData {
     pub fn create_source(
         &self,
         initial_eq: Equalizer,
+        eq_enabled: bool,
         cmd_rx: Receiver<RealtimeAudioCommand>,
     ) -> BufferedSource {
         BufferedSource::new(
@@ -205,6 +206,7 @@ impl AudioPlaybackData {
             self.metadata.num_channels,
             self.position_tracker.clone(),
             initial_eq,
+            eq_enabled,
             cmd_rx,
         )
     }
@@ -231,6 +233,7 @@ impl BufferedSource {
         channels: u16,
         position_tracker: PositionTracker,
         equalizer: Equalizer,
+        eq_enabled: bool,
         cmd_rx: Receiver<RealtimeAudioCommand>,
     ) -> Self {
         Self {
@@ -238,7 +241,7 @@ impl BufferedSource {
             sample_rate,
             channels,
             position_tracker,
-            equalizer: DspNode::new(equalizer),
+            equalizer: DspNode::new_with_state(equalizer, eq_enabled),
             cmd_rx,
             process_buffer: Vec::with_capacity(CHUNK_SIZE),
             process_buffer_idx: 0,

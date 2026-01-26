@@ -1,8 +1,8 @@
 use anyhow::Result;
 use ratatui::{Frame, layout::Rect};
 
-use crate::state::AppState;
-use audido_core::engine::AudioEngineHandle;
+use crate::{state::AppState, ui};
+use audido_core::{commands::AudioCommand, engine::AudioEngineHandle};
 use ratatui::crossterm::event::KeyCode;
 
 /// Trait that all routes must implement
@@ -36,6 +36,13 @@ pub trait RouteHandler: std::fmt::Debug {
     /// Optional: Check if this route can be exited (for validation)
     fn can_exit(&self, _state: &AppState) -> bool {
         true
+    }
+
+    fn help_items(&self, _state: &AppState) -> Vec<(&str, &str)> {
+        vec![
+            ("Tab", "Switch Tab"),
+            ("Q", "Quit"),
+        ]
     }
 }
 
@@ -210,7 +217,7 @@ pub struct PlaybackRoute;
 
 impl RouteHandler for PlaybackRoute {
     fn render(&self, frame: &mut Frame, area: Rect, state: &AppState) {
-        crate::ui::draw_playback_panel(frame, area, state);
+        ui::draw_playback_panel(frame, area, state);
     }
 
     fn handle_input(
@@ -244,6 +251,26 @@ impl RouteHandler for PlaybackRoute {
                     .cmd_tx
                     .send(audido_core::commands::AudioCommand::Seek(new_pos))?;
             }
+            KeyCode::Char(' ') => {
+                if state.is_playing {
+                    handle.cmd_tx.send(AudioCommand::Pause)?;
+                } else {
+                    handle.cmd_tx.send(AudioCommand::Play)?;
+                }
+            }
+            KeyCode::Char('s') => {
+                handle.cmd_tx.send(AudioCommand::Stop)?;
+            }
+            KeyCode::Char('n') => {
+                handle.cmd_tx.send(AudioCommand::Next)?;
+            }
+            KeyCode::Char('p') => {
+                handle.cmd_tx.send(AudioCommand::Previous)?;
+            }
+            KeyCode::Char('l') => {
+                let next_mode = state.next_loop_mode();
+                handle.cmd_tx.send(AudioCommand::SetLoopMode(next_mode))?;
+            }
             _ => {}
         }
         Ok(RouteAction::None)
@@ -260,7 +287,7 @@ pub struct QueueRoute;
 
 impl RouteHandler for QueueRoute {
     fn render(&self, frame: &mut Frame, area: Rect, state: &AppState) {
-        crate::ui::draw_queue_panel(frame, area, state);
+        ui::draw_queue_panel(frame, area, state);
     }
 
     fn handle_input(
@@ -287,7 +314,6 @@ impl RouteHandler for QueueRoute {
     fn name(&self) -> &str {
         "Queue"
     }
-
 }
 
 /// Browser route - handles both browsing and file dialog as internal state
@@ -296,7 +322,7 @@ pub struct BrowserRoute;
 
 impl RouteHandler for BrowserRoute {
     fn render(&self, frame: &mut Frame, area: Rect, state: &AppState) {
-        crate::ui::draw_browser_panel(frame, area, state);
+        ui::draw_browser_panel(frame, area, state);
     }
 
     fn handle_input(
@@ -401,7 +427,6 @@ impl RouteHandler for SettingsRoute {
     fn name(&self) -> &str {
         "Settings"
     }
-
 }
 
 /// Equalizer route
@@ -420,31 +445,69 @@ impl RouteHandler for EqualizerRoute {
         handle: &AudioEngineHandle,
     ) -> Result<RouteAction> {
         match key {
+            KeyCode::Left | KeyCode::Right => {
+                // Toggle focus between curve panel and band panel
+                state.eq_state.toggle_focus();
+            }
             KeyCode::Up => {
-                state.eq_state.local_master_gain =
-                    (state.eq_state.local_master_gain + 0.5).min(12.0);
-                handle
-                    .cmd_tx
-                    .send(audido_core::commands::AudioCommand::EqSetMasterGain(
-                        state.eq_state.local_master_gain,
-                    ))?;
+                match state.eq_state.eq_focus {
+                    crate::state::EqFocus::CurvePanel => {
+                        // Increase master gain
+                        state.eq_state.local_master_gain =
+                            (state.eq_state.local_master_gain + 0.5).min(12.0);
+                        handle.cmd_tx.send(
+                            audido_core::commands::AudioCommand::EqSetMasterGain(
+                                state.eq_state.local_master_gain,
+                            ),
+                        )?;
+                    }
+                    crate::state::EqFocus::BandPanel => {
+                        // Select previous band (in Advanced mode)
+                        match state.eq_state.eq_mode {
+                            crate::state::EqMode::Casual => {
+                                // state.eq_state.prev_band();
+                                // TODO: implement toggle preset
+                            }
+                            crate::state::EqMode::Advanced => {
+                                state.eq_state.prev_band();
+                            }
+                        }
+                    }
+                }
             }
             KeyCode::Down => {
-                state.eq_state.local_master_gain =
-                    (state.eq_state.local_master_gain - 0.5).max(-12.0);
-                handle
-                    .cmd_tx
-                    .send(audido_core::commands::AudioCommand::EqSetMasterGain(
-                        state.eq_state.local_master_gain,
-                    ))?;
+                match state.eq_state.eq_focus {
+                    crate::state::EqFocus::CurvePanel => {
+                        // Decrease master gain
+                        state.eq_state.local_master_gain =
+                            (state.eq_state.local_master_gain - 0.5).max(-12.0);
+                        handle.cmd_tx.send(
+                            audido_core::commands::AudioCommand::EqSetMasterGain(
+                                state.eq_state.local_master_gain,
+                            ),
+                        )?;
+                    }
+                    crate::state::EqFocus::BandPanel => {
+                        // Select next band (in Advanced mode)
+                        state.eq_state.next_band();
+                    }
+                }
             }
-            KeyCode::Enter => {
+            KeyCode::Char('t') => {
                 state.eq_state.toggle_enabled();
                 handle
                     .cmd_tx
                     .send(audido_core::commands::AudioCommand::EqSetEnabled(
                         state.eq_state.eq_enabled,
                     ))?;
+            }
+            KeyCode::Enter => {
+                match state.eq_state.eq_focus {
+                    crate::state::EqFocus::CurvePanel => {}
+                    crate::state::EqFocus::BandPanel => {
+                        // TODO: implement a small modal to modify the filter band parameters
+                    }
+                }
             }
             KeyCode::Char('m') => {
                 state.eq_state.toggle_mode();
@@ -511,5 +574,4 @@ impl RouteHandler for LogRoute {
     fn name(&self) -> &str {
         "Log"
     }
-
 }

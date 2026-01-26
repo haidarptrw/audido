@@ -12,6 +12,11 @@ impl<T> DspNode<T> {
             instance,
         }
     }
+
+    /// Create a new DspNode with an initial enabled state
+    pub fn new_with_state(instance: T, on: bool) -> Self {
+        Self { on, instance }
+    }
 }
 
 // Specialized methods for DspNode<Equalizer>
@@ -33,6 +38,6 @@ impl DspNode<Equalizer> {
     }
 }
 
-pub struct DspGraph<T> {
-    nodes: Vec<DspNode<T>>,
-}
+// pub struct DspGraph<T> {
+//     nodes: Vec<DspNode<T>>,
+// }

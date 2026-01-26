@@ -3,10 +3,12 @@
 
 use std::f32::consts::PI;
 
+use strum::EnumIter;
+
 pub const MAX_EQ_FILTERS: usize = 8;
 
 /// Filter type: Use Direct Form II Biquad Filter
-#[derive(Default, Debug, Clone, Copy, PartialEq)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, EnumIter, strum_macros::Display)]
 pub enum FilterType {
     #[default]
     Peaking,
@@ -60,7 +62,7 @@ impl FilterNode {
 
         // Evaluate Transfer Function H(z) at z = e^(jw)
         // w (omega) for the target frequency
-        let w = 2.0 * std::f32::consts::PI * frequency_hz / sample_rate;
+        let w = 2.0 * PI * frequency_hz / sample_rate;
         let cos_w = w.cos();
         let cos_2w = (2.0 * w).cos();
         let sin_w = w.sin();
@@ -226,7 +228,7 @@ pub enum EqPreset {
 
 fn create_flat_filters() -> Vec<FilterNode> {
     let mut filters = Vec::with_capacity(MAX_EQ_FILTERS);
-    let freqs = [40.0, 200.0, 500.0, 1000., 2000., 10000., 15000.];
+    let freqs = [40.0, 200.0, 500.0, 1000., 2000., 5000., 10000., 15000.];
     for i in 0..MAX_EQ_FILTERS {
         filters.push(FilterNode {
             id: i as i16,
@@ -416,7 +418,7 @@ impl Equalizer {
             let f = log_f.exp();
             let mut total_db = master_gain_db;
             for filter in &self.filters {
-                total_db += filter.magnitude_db(filter.freq, self.sample_rate as f32);
+                total_db += filter.magnitude_db(f, self.sample_rate as f32);
             }
             points.push((f, total_db));
         }

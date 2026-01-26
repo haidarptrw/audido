@@ -8,18 +8,6 @@ use audido_core::{
     queue::{LoopMode, QueueItem},
 };
 use ratatui::widgets::ListState;
-use strum::IntoEnumIterator;
-use strum_macros::EnumIter;
-
-/// Which tab is currently active in the sidebar navigation
-#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter, strum_macros::Display)]
-pub enum ActiveTab {
-    Playback,
-    Queue,
-    Browser,
-    Settings,
-    Log,
-}
 
 /// Dialog shown when selecting a file in browser
 #[derive(Debug, Clone, Default)]
@@ -132,11 +120,10 @@ pub enum EqMode {
 
 #[derive(PartialEq, Clone, Copy, Debug)]
 pub enum EqFocus {
-    Toggle,
-    Preset,
-    MasterGain,
-    FilterList, // Selecting a band/node
-    EditParam,  // Editing a specific parameter
+    /// Curve/Graph panel - up/down controls master gain
+    CurvePanel,
+    /// Band panel - up/down selects bands (Advanced mode only)
+    BandPanel,
 }
 
 #[derive(Debug, Clone)]
@@ -161,10 +148,10 @@ impl EqState {
             show_eq: false,
             eq_enabled: false,
             eq_mode: EqMode::Casual,
-            eq_focus: EqFocus::Toggle,
+            eq_focus: EqFocus::CurvePanel,
             eq_selected_band: 0,
             eq_selected_param: 0,
-            local_filters: Vec::new(),
+            local_filters: EqPreset::default().set_filters(),
             local_preset: EqPreset::default(),
             local_master_gain: 0.0,
             local_num_channels: 2, // Default to stereo
@@ -182,6 +169,32 @@ impl EqState {
             EqMode::Casual => EqMode::Advanced,
             EqMode::Advanced => EqMode::Casual,
         };
+    }
+
+    /// Toggle focus between CurvePanel and BandPanel
+    pub fn toggle_focus(&mut self) {
+        self.eq_focus = match self.eq_focus {
+            EqFocus::CurvePanel => EqFocus::BandPanel,
+            EqFocus::BandPanel => EqFocus::CurvePanel,
+        };
+    }
+
+    /// Select next band in the filter list
+    pub fn next_band(&mut self) {
+        if !self.local_filters.is_empty() {
+            self.eq_selected_band = (self.eq_selected_band + 1) % self.local_filters.len();
+        }
+    }
+
+    /// Select previous band in the filter list
+    pub fn prev_band(&mut self) {
+        if !self.local_filters.is_empty() {
+            self.eq_selected_band = if self.eq_selected_band == 0 {
+                self.local_filters.len() - 1
+            } else {
+                self.eq_selected_band - 1
+            };
+        }
     }
 
     /// Open EQ panel
@@ -240,21 +253,25 @@ impl SettingsState {
         }
     }
 
+    #[allow(dead_code)]
     pub fn open_dialog(&mut self) {
         self.is_dialog_open = true;
         self.dialog_selection_index = 0;
     }
 
+    #[allow(dead_code)]
     pub fn close_dialog(&mut self) {
         self.is_dialog_open = false;
     }
 
+    #[allow(dead_code)]
     pub fn next_dialog(&mut self, choice_count: usize) {
         if choice_count > 0 {
             self.dialog_selection_index = (self.dialog_selection_index + 1) % choice_count;
         }
     }
 
+    #[allow(dead_code)]
     pub fn prev_dialog(&mut self, choice_count: usize) {
         if choice_count > 0 {
             self.dialog_selection_index =
@@ -265,9 +282,6 @@ impl SettingsState {
 
 /// Application state for the TUI
 pub struct AppState {
-    /// Currently active tab in the sidebar navigation
-    pub active_tab: ActiveTab,
-
     // ==============================
     // Audio State
     // ==============================
@@ -309,7 +323,6 @@ pub struct AppState {
 impl AppState {
     pub fn new() -> Self {
         Self {
-            active_tab: ActiveTab::Playback,
             is_playing: false,
             position: 0.0,
             duration: 0.0,
@@ -401,14 +414,6 @@ impl AppState {
         let mins = (seconds / 60.0).floor() as u32;
         let secs = (seconds % 60.0).floor() as u32;
         format!("{:02}:{:02}", mins, secs)
-    }
-
-    /// Cycle to the next tab in the sidebar navigation
-    pub fn next_tab(&mut self) {
-        let tabs: Vec<ActiveTab> = ActiveTab::iter().collect();
-        let current_idx = tabs.iter().position(|t| *t == self.active_tab).unwrap_or(0);
-        let next_idx = (current_idx + 1) % tabs.len();
-        self.active_tab = tabs[next_idx];
     }
 
     // ==============================================
