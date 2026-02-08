@@ -18,6 +18,16 @@ impl Display for ChannelLayout {
     }
 }
 
+impl ChannelLayout {
+    pub fn from_channels(num_channels: u16) -> ChannelLayout {
+        match num_channels {
+            1 => ChannelLayout::Mono,
+            2 => ChannelLayout::Stereo,
+            _ => ChannelLayout::Unsupported,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MusicalSongKey {
     CMaj,
@@ -44,6 +54,44 @@ pub enum MusicalSongKey {
     ASharpMin,
     BMaj,
     BMin,
+}
+
+impl MusicalSongKey {
+    pub fn from_major(semitone: u8) -> Option<MusicalSongKey> {
+        match semitone {
+            0 => Some(MusicalSongKey::CMaj),
+            1 => Some(MusicalSongKey::CSharpMaj),
+            2 => Some(MusicalSongKey::DMaj),
+            3 => Some(MusicalSongKey::DSharpMaj),
+            4 => Some(MusicalSongKey::EMaj),
+            5 => Some(MusicalSongKey::FMaj),
+            6 => Some(MusicalSongKey::FSharpMaj),
+            7 => Some(MusicalSongKey::GMaj),
+            8 => Some(MusicalSongKey::GSharpMaj),
+            9 => Some(MusicalSongKey::AMaj),
+            10 => Some(MusicalSongKey::ASharpMaj),
+            11 => Some(MusicalSongKey::BMaj),
+            _ => None,
+        }
+    }
+
+    pub fn from_minor(semitone: u8) -> Option<MusicalSongKey> {
+        match semitone {
+            0 => Some(MusicalSongKey::CMin),
+            1 => Some(MusicalSongKey::CSharpMin),
+            2 => Some(MusicalSongKey::DMin),
+            3 => Some(MusicalSongKey::DSharpMin),
+            4 => Some(MusicalSongKey::EMin),
+            5 => Some(MusicalSongKey::FMin),
+            6 => Some(MusicalSongKey::FSharpMin),
+            7 => Some(MusicalSongKey::GMin),
+            8 => Some(MusicalSongKey::GSharpMin),
+            9 => Some(MusicalSongKey::AMin),
+            10 => Some(MusicalSongKey::ASharpMin),
+            11 => Some(MusicalSongKey::BMin),
+            _ => None,
+        }
+    }
 }
 
 impl Display for MusicalSongKey {
