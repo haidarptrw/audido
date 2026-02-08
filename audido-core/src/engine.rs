@@ -205,7 +205,7 @@ impl AudioEngine {
 
                 match AudioPlaybackData::load_local_audio(&path) {
                     Ok(audio_data) => {
-                        let metadata = audio_data.metadata().clone();
+                        let metadata = audio_data.metadata();
                         self.current_audio = Some(audio_data);
                         let _ = self.resp_tx.send(AudioResponse::Loaded(metadata));
 
