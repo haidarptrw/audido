@@ -1,8 +1,8 @@
 use anyhow::Result;
 use ratatui::{Frame, layout::Rect};
 
-use crate::{state::AppState, ui};
-use audido_core::{commands::AudioCommand, engine::AudioEngineHandle};
+use crate::{routes::{browser::BrowserRoute, log::LogRoute, playback::PlaybackRoute, queue::QueueRoute}, state::AppState, ui};
+use audido_core::{engine::AudioEngineHandle};
 use ratatui::crossterm::event::KeyCode;
 
 /// Trait that all routes must implement
@@ -18,7 +18,7 @@ pub trait RouteHandler: std::fmt::Debug {
         key: KeyCode,
         state: &mut AppState,
         handle: &AudioEngineHandle,
-    ) -> Result<RouteAction>;
+    ) -> anyhow::Result<RouteAction>;
 
     /// Get the display name for breadcrumbs/navigation
     fn name(&self) -> &str;
@@ -211,192 +211,6 @@ pub fn tab_names() -> &'static [&'static str] {
 // Concrete Route Implementations
 // ============================================================================
 
-/// Playback route
-#[derive(Debug, Clone)]
-pub struct PlaybackRoute;
-
-impl RouteHandler for PlaybackRoute {
-    fn render(&self, frame: &mut Frame, area: Rect, state: &AppState) {
-        ui::draw_playback_panel(frame, area, state);
-    }
-
-    fn handle_input(
-        &mut self,
-        key: KeyCode,
-        state: &mut AppState,
-        handle: &AudioEngineHandle,
-    ) -> Result<RouteAction> {
-        match key {
-            KeyCode::Up => {
-                state.volume = (state.volume + 0.1).min(1.0);
-                handle
-                    .cmd_tx
-                    .send(audido_core::commands::AudioCommand::SetVolume(state.volume))?;
-            }
-            KeyCode::Down => {
-                state.volume = (state.volume - 0.1).max(0.0);
-                handle
-                    .cmd_tx
-                    .send(audido_core::commands::AudioCommand::SetVolume(state.volume))?;
-            }
-            KeyCode::Right => {
-                let new_pos = state.position + 5.0;
-                handle
-                    .cmd_tx
-                    .send(audido_core::commands::AudioCommand::Seek(new_pos))?;
-            }
-            KeyCode::Left => {
-                let new_pos = (state.position - 5.0).max(0.0);
-                handle
-                    .cmd_tx
-                    .send(audido_core::commands::AudioCommand::Seek(new_pos))?;
-            }
-            KeyCode::Char(' ') => {
-                if state.is_playing {
-                    handle.cmd_tx.send(AudioCommand::Pause)?;
-                } else {
-                    handle.cmd_tx.send(AudioCommand::Play)?;
-                }
-            }
-            KeyCode::Char('s') => {
-                handle.cmd_tx.send(AudioCommand::Stop)?;
-            }
-            KeyCode::Char('n') => {
-                handle.cmd_tx.send(AudioCommand::Next)?;
-            }
-            KeyCode::Char('p') => {
-                handle.cmd_tx.send(AudioCommand::Previous)?;
-            }
-            KeyCode::Char('l') => {
-                let next_mode = state.next_loop_mode();
-                handle.cmd_tx.send(AudioCommand::SetLoopMode(next_mode))?;
-            }
-            _ => {}
-        }
-        Ok(RouteAction::None)
-    }
-
-    fn name(&self) -> &str {
-        "Playback"
-    }
-}
-
-/// Queue route
-#[derive(Debug, Clone)]
-pub struct QueueRoute;
-
-impl RouteHandler for QueueRoute {
-    fn render(&self, frame: &mut Frame, area: Rect, state: &AppState) {
-        ui::draw_queue_panel(frame, area, state);
-    }
-
-    fn handle_input(
-        &mut self,
-        key: KeyCode,
-        state: &mut AppState,
-        handle: &AudioEngineHandle,
-    ) -> Result<RouteAction> {
-        match key {
-            KeyCode::Up => state.queue_prev(),
-            KeyCode::Down => state.queue_next(),
-            KeyCode::Enter => {
-                if let Some(idx) = state.queue_selected() {
-                    handle
-                        .cmd_tx
-                        .send(audido_core::commands::AudioCommand::PlayQueueIndex(idx))?;
-                }
-            }
-            _ => {}
-        }
-        Ok(RouteAction::None)
-    }
-
-    fn name(&self) -> &str {
-        "Queue"
-    }
-}
-
-/// Browser route - handles both browsing and file dialog as internal state
-#[derive(Debug, Clone)]
-pub struct BrowserRoute;
-
-impl RouteHandler for BrowserRoute {
-    fn render(&self, frame: &mut Frame, area: Rect, state: &AppState) {
-        ui::draw_browser_panel(frame, area, state);
-    }
-
-    fn handle_input(
-        &mut self,
-        key: KeyCode,
-        state: &mut AppState,
-        handle: &AudioEngineHandle,
-    ) -> Result<RouteAction> {
-        // Check if dialog is open - handle dialog input
-        if state.browser.is_dialog_open() {
-            match key {
-                KeyCode::Up | KeyCode::Down => {
-                    state.browser.dialog_toggle();
-                }
-                KeyCode::Enter => {
-                    if let crate::state::BrowserFileDialog::Open { path, selected } =
-                        &state.browser.dialog
-                    {
-                        let path_str = path.to_string_lossy().to_string();
-
-                        if *selected == 0 {
-                            // Play Now
-                            handle
-                                .cmd_tx
-                                .send(audido_core::commands::AudioCommand::ClearQueue)?;
-                            handle
-                                .cmd_tx
-                                .send(audido_core::commands::AudioCommand::AddToQueue(vec![
-                                    path_str,
-                                ]))?;
-                            handle
-                                .cmd_tx
-                                .send(audido_core::commands::AudioCommand::PlayQueueIndex(0))?;
-                            state.browser.close_dialog();
-                            // Navigate to playback
-                            return Ok(RouteAction::Replace(Box::new(PlaybackRoute)));
-                        } else {
-                            // Add to Queue
-                            handle
-                                .cmd_tx
-                                .send(audido_core::commands::AudioCommand::AddToQueue(vec![
-                                    path_str,
-                                ]))?;
-                            state.browser.close_dialog();
-                        }
-                    }
-                }
-                KeyCode::Esc => {
-                    state.browser.close_dialog();
-                }
-                _ => {}
-            }
-        } else {
-            // Normal browser navigation
-            match key {
-                KeyCode::Up => state.browser.prev(),
-                KeyCode::Down => state.browser.next(),
-                KeyCode::Enter => {
-                    if let Some(path) = state.browser.enter() {
-                        // Open dialog as internal state
-                        state.browser.open_dialog(path);
-                    }
-                }
-                _ => {}
-            }
-        }
-        Ok(RouteAction::None)
-    }
-
-    fn name(&self) -> &str {
-        "Browser"
-    }
-}
-
 /// Settings route
 #[derive(Debug, Clone)]
 pub struct SettingsRoute;
@@ -541,37 +355,5 @@ impl RouteHandler for EqualizerRoute {
     fn on_exit(&mut self, state: &mut AppState, _handle: &AudioEngineHandle) -> Result<()> {
         state.eq_state.close_panel();
         Ok(())
-    }
-}
-
-/// Log route
-#[derive(Debug, Clone)]
-pub struct LogRoute;
-
-impl RouteHandler for LogRoute {
-    fn render(&self, frame: &mut Frame, area: Rect, state: &AppState) {
-        crate::ui::draw_log_panel(frame, area, state);
-    }
-
-    fn handle_input(
-        &mut self,
-        key: KeyCode,
-        _state: &mut AppState,
-        _handle: &AudioEngineHandle,
-    ) -> Result<RouteAction> {
-        match key {
-            KeyCode::Up => {
-                log::trace!("Log scroll up");
-            }
-            KeyCode::Down => {
-                log::trace!("Log scroll down");
-            }
-            _ => {}
-        }
-        Ok(RouteAction::None)
-    }
-
-    fn name(&self) -> &str {
-        "Log"
     }
 }

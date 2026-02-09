@@ -20,9 +20,12 @@ use audido_core::{
 mod router;
 mod state;
 mod ui;
+mod routes;
 
-use router::{PlaybackRoute, Router, route_for_name, tab_names};
+use router::{Router, route_for_name, tab_names};
 use state::AppState;
+
+use crate::routes::playback::PlaybackRoute;
 
 fn main() -> anyhow::Result<()> {
     // Initialize tui_logger for TUI log display

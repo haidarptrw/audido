@@ -148,6 +148,7 @@ impl Biquad {
     }
 
     /// Helper to calculate (b0, b1, b2, a0, a1, a2)
+    /// This code is adapted from RBJ Audio EQ Cookbook
     fn calculate_coefficients(
         cos_w0: f32,
         alpha: f32,

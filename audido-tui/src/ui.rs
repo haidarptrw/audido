@@ -6,10 +6,9 @@ use ratatui::{
     symbols,
     text::{Line, Span},
     widgets::{
-        Axis, Block, Borders, Chart, Clear, Dataset, Gauge, GraphType, List, ListItem, Paragraph,
+        Axis, Block, Borders, Chart, Clear, Dataset, GraphType, List, ListItem, Paragraph,
     },
 };
-use tui_logger::TuiLoggerWidget;
 
 use crate::state::{AppState, BrowserFileDialog, EqFocus, EqMode, SettingsOption};
 
@@ -89,164 +88,6 @@ fn draw_main_content(f: &mut Frame, area: Rect, state: &AppState, router: &crate
     // Draw global footers on every tab
     draw_controls(f, controls_area, state, router);
     draw_status(f, status_area, state);
-}
-
-/// Draw the playback panel
-pub fn draw_playback_panel(f: &mut Frame, area: Rect, state: &AppState) {
-    // Panel is active when rendered (router-based system)
-    let is_active = true;
-
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(6), // Now playing info
-            Constraint::Length(3), // Progress bar
-            Constraint::Length(3), // Controls info
-            Constraint::Min(0),    // Status/spacer
-        ])
-        .split(area);
-
-    draw_now_playing(f, chunks[0], state, is_active);
-    draw_progress(f, chunks[1], state);
-}
-
-/// Draw the log panel
-pub fn draw_log_panel(f: &mut Frame, area: Rect, _state: &AppState) {
-    // Panel is active when rendered (router-based system)
-    let is_active = true;
-
-    let border_style = if is_active {
-        Style::default()
-            .fg(Color::Cyan)
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(Color::DarkGray)
-    };
-
-    let log_widget = TuiLoggerWidget::default()
-        .block(
-            Block::default()
-                .title(" 📋 Log ")
-                .borders(Borders::ALL)
-                .border_style(border_style),
-        )
-        .style(Style::default().fg(Color::White));
-
-    f.render_widget(log_widget, area);
-}
-
-pub fn draw_browser_panel(f: &mut Frame, area: Rect, state: &AppState) {
-    // Panel is active when rendered (router-based system)
-    let is_active = true;
-
-    // Title shows current path
-    let title = if state.browser.current_dir.as_os_str().is_empty() {
-        " Browser: System Drives ".to_string()
-    } else {
-        format!(" Browser: {} ", state.browser.current_dir.to_string_lossy())
-    };
-
-    let block = Block::default()
-        .title(title)
-        .borders(Borders::ALL)
-        .border_style(if is_active {
-            Style::default().fg(Color::Cyan)
-        } else {
-            Style::default()
-        });
-
-    let items: Vec<ListItem> = state
-        .browser
-        .items
-        .iter()
-        .map(|item| {
-            let icon = if item.is_dir { "📁" } else { "🎵" };
-            let color = if item.is_dir {
-                Color::Blue
-            } else {
-                Color::White
-            };
-
-            ListItem::new(Line::from(vec![
-                Span::styled(format!("{} ", icon), Style::default().fg(color)),
-                Span::raw(&item.name),
-            ]))
-        })
-        .collect();
-
-    let list = List::new(items)
-        .block(block)
-        .highlight_style(
-            Style::default()
-                .bg(Color::DarkGray)
-                .add_modifier(Modifier::BOLD),
-        )
-        .highlight_symbol(">> ");
-
-    // We must clone the state to pass mutable reference to render_stateful_widget
-    // But since we can't mutate state here, we pass a clone. Ratatui uses this for offset calculation.
-    let mut list_state = state.browser.list_state.clone();
-    f.render_stateful_widget(list, area, &mut list_state);
-}
-
-/// Draw the now playing section
-fn draw_now_playing(f: &mut Frame, area: Rect, state: &AppState, is_active: bool) {
-    let border_style = if is_active {
-        Style::default()
-            .fg(Color::Cyan)
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(Color::DarkGray)
-    };
-
-    let block = Block::default()
-        .title(" 🎵 Now Playing ")
-        .borders(Borders::ALL)
-        .border_style(border_style);
-
-    let inner = block.inner(area);
-    f.render_widget(block, area);
-
-    if let Some(ref metadata) = state.metadata {
-        let title = metadata.title.as_deref().unwrap_or("Unknown Title");
-        let artist = metadata.author.as_deref().unwrap_or("Unknown Artist");
-        let album = metadata.album.as_deref().unwrap_or("Unknown Album");
-
-        let text = vec![
-            Line::from(vec![Span::styled(
-                title,
-                Style::default().fg(Color::White).bold(),
-            )]),
-            Line::from(vec![Span::styled(artist, Style::default().fg(Color::Gray))]),
-            Line::from(vec![Span::styled(
-                album,
-                Style::default().fg(Color::DarkGray),
-            )]),
-        ];
-
-        let paragraph = Paragraph::new(text);
-        f.render_widget(paragraph, inner);
-    } else {
-        let text = Paragraph::new("No audio loaded").style(Style::default().fg(Color::DarkGray));
-        f.render_widget(text, inner);
-    }
-}
-
-/// Draw the progress bar
-fn draw_progress(f: &mut Frame, area: Rect, state: &AppState) {
-    let progress_pct = (state.progress() * 100.0) as u16;
-    let position_str = AppState::format_time(state.position);
-    let duration_str = AppState::format_time(state.duration);
-
-    let label = format!("{} / {}", position_str, duration_str);
-
-    let gauge = Gauge::default()
-        .block(Block::default().borders(Borders::ALL))
-        .gauge_style(Style::default().fg(Color::Cyan).bg(Color::DarkGray))
-        .percent(progress_pct)
-        .label(label);
-
-    f.render_widget(gauge, area);
 }
 
 /// Draw the controls help section
@@ -380,69 +221,6 @@ fn draw_status(f: &mut Frame, area: Rect, state: &AppState) {
         .block(Block::default().borders(Borders::ALL).title(" Status "));
 
     f.render_widget(paragraph, area);
-}
-
-/// Draw the queue panel
-pub fn draw_queue_panel(f: &mut Frame, area: Rect, state: &AppState) {
-    // Panel is active when rendered (router-based system)
-    let is_active = true;
-
-    let title = format!(" Queue ({} tracks) ", state.queue.len());
-    let block = Block::default()
-        .title(title)
-        .borders(Borders::ALL)
-        .border_style(if is_active {
-            Style::default().fg(Color::Cyan)
-        } else {
-            Style::default()
-        });
-
-    let items: Vec<ListItem> = state
-        .queue
-        .iter()
-        .enumerate()
-        .map(|(i, item)| {
-            let is_current = state.current_queue_index == Some(i);
-            let prefix = if is_current { "▶ " } else { "  " };
-            let name = item
-                .metadata
-                .as_ref()
-                .and_then(|m| m.title.clone())
-                .unwrap_or_else(|| {
-                    item.path
-                        .file_name()
-                        .map(|s| s.to_string_lossy().to_string())
-                        .unwrap_or_else(|| "Unknown".to_string())
-                });
-            let style = if is_current {
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                Style::default().fg(Color::White)
-            };
-            ListItem::new(format!("{}{}", prefix, name)).style(style)
-        })
-        .collect();
-
-    if items.is_empty() {
-        let empty_msg = Paragraph::new("Queue is empty. Add files from Browser.")
-            .style(Style::default().fg(Color::DarkGray))
-            .block(block);
-        f.render_widget(empty_msg, area);
-    } else {
-        let list = List::new(items)
-            .block(block)
-            .highlight_style(
-                Style::default()
-                    .bg(Color::DarkGray)
-                    .add_modifier(Modifier::BOLD),
-            )
-            .highlight_symbol(">> ");
-
-        let mut list_state = state.queue_state.clone();
-        f.render_stateful_widget(list, area, &mut list_state);
-    }
 }
 
 /// Draw the browser file dialog overlay
@@ -880,14 +658,41 @@ fn draw_eq_graph(f: &mut Frame, area: Rect, state: &AppState) {
     eq.master_gain = 10.0f32.powf(state.eq_state.local_master_gain / 20.0); // Convert dB to linear
     eq.parameters_changed();
 
+    let width = 100;
     let data = eq.get_response_curve(100);
 
+    
     // Transform to log scale for x-axis (frequency)
     // log10(20) ≈ 1.3, log10(20000) ≈ 4.3
     let data_points: Vec<(f64, f64)> = data
-        .iter()
-        .map(|(freq, db)| ((*freq as f64).log10(), *db as f64))
-        .collect();
+    .iter()
+    .map(|(freq, db)| ((*freq as f64).log10(), *db as f64))
+    .collect();
+
+    log::debug!("{:?}", data_points);
+
+    let mut filter_curves: Vec<Vec<(f64, f64)>> = Vec::new();
+
+    for filter in &state.eq_state.local_filters {
+        let mut curve_points = Vec::with_capacity(width);
+        
+        // Generate points across the frequency spectrum for this single filter
+        let start_freq: f32 = 20.0;
+        let end_freq: f32 = 20000.0;
+        let log_start = start_freq.ln();
+        let log_end = end_freq.ln();
+        let step = (log_end - log_start) / (width as f32 - 1.0);
+        
+        for i in 0..width {
+            let log_f = log_start + step * i as f32;
+            let f = log_f.exp();
+            // Get magnitude of just this filter (no master gain)
+            let db = filter.magnitude_db(f, sample_rate as f32);
+            curve_points.push((f.log10() as f64, db as f64));
+        }
+        
+        filter_curves.push(curve_points);
+    }
 
     // Create filter center points for visualization (also in log scale)
     let filter_points: Vec<(f64, f64)> = state
@@ -905,20 +710,58 @@ fn draw_eq_graph(f: &mut Frame, area: Rect, state: &AppState) {
         })
         .collect();
 
-    let datasets = vec![
+    let mut datasets = vec![
         Dataset::default()
             .name("Response")
-            .marker(symbols::Marker::Braille)
+            .marker(symbols::Marker::Dot)
             .graph_type(GraphType::Line)
             .style(Style::default().fg(Color::Cyan))
             .data(&data_points),
+        // Dataset::default()
+        //     .name("Filters")
+        //     .marker(symbols::Marker::Dot)
+        //     .graph_type(GraphType::Scatter)
+        //     .style(Style::default().fg(Color::Yellow))
+        //     .data(&filter_points),
+    ];
+
+    // Add individual filter curves with different colors/styles
+    let filter_colors = [
+        Color::Red,
+        Color::Green,
+        Color::Yellow,
+        Color::Magenta,
+        Color::Blue,
+        Color::LightRed,
+        Color::LightGreen,
+        Color::LightYellow,
+    ];
+
+    for (idx, curve) in filter_curves.iter().enumerate() {
+        let color = filter_colors[idx % filter_colors.len()];
+        datasets.push(
+            Dataset::default()
+                .name(format!("F{}", idx + 1))
+                .marker(symbols::Marker::Braille)  // Use Braille for smoother lines
+                .graph_type(GraphType::Line)
+                .style(
+                    Style::default()
+                        .fg(color)
+                        .add_modifier(Modifier::DIM), // Dimmed to not overpower main curve
+                )
+                .data(curve),
+        );
+    }
+
+    // Add filter center markers on top
+    datasets.push(
         Dataset::default()
-            .name("Filters")
+            .name("Centers")
             .marker(symbols::Marker::Dot)
             .graph_type(GraphType::Scatter)
-            .style(Style::default().fg(Color::Yellow))
+            .style(Style::default().fg(Color::White).add_modifier(Modifier::BOLD))
             .data(&filter_points),
-    ];
+    );
 
     // Labels must be evenly spaced in log scale for proper alignment
     // 20 → 200 → 2000 → 20000 (each is 10x, so 1.0 apart in log10)
