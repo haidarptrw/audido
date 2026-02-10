@@ -4,12 +4,10 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{
-        Block, Borders, Clear, Paragraph,
-    },
+    widgets::{Block, Borders, Paragraph},
 };
 
-use crate::state::{AppState, BrowserFileDialog};
+use crate::state::AppState;
 
 /// Draw the TUI interface
 pub fn draw(f: &mut Frame, state: &AppState, router: &crate::router::Router) {
@@ -25,11 +23,6 @@ pub fn draw(f: &mut Frame, state: &AppState, router: &crate::router::Router) {
 
     draw_sidebar(f, main_chunks[0], state, router);
     draw_main_content(f, main_chunks[1], state, router);
-
-    // Draw dialog overlay if open
-    if state.is_dialog_open() {
-        draw_browser_dialog(f, f.area(), state);
-    }
 }
 
 /// Draw the sidebar navigation
@@ -193,26 +186,26 @@ fn draw_controls(f: &mut Frame, area: Rect, _state: &AppState, router: &crate::r
 
 /// Draw the status section
 fn draw_status(f: &mut Frame, area: Rect, state: &AppState) {
-    let status_style = if state.error_message.is_some() {
+    let status_style = if state.audio.error_message.is_some() {
         Style::default().fg(Color::Red)
-    } else if state.is_playing {
+    } else if state.audio.is_playing {
         Style::default().fg(Color::Green)
     } else {
         Style::default().fg(Color::Yellow)
     };
 
-    let loop_icon = match state.loop_mode {
+    let loop_icon = match state.queue.loop_mode {
         LoopMode::Off => "➡️ Off",
         LoopMode::RepeatOne => "🔂 One",
         LoopMode::LoopAll => "🔁 All",
         LoopMode::Shuffle => "🔀 Shuffle",
     };
 
-    let volume_bar = format!("Vol: {:3.0}%", state.volume * 100.0);
-    let queue_info = format!("Queue: {}", state.queue.len());
+    let volume_bar = format!("Vol: {:3.0}%", state.audio.volume * 100.0);
+    let queue_info = format!("Queue: {}", state.queue.queue.len());
     let status_text = format!(
         "{}  |  {}  |  {}  |  {}",
-        state.status_message, volume_bar, queue_info, loop_icon
+        state.audio.status_message, volume_bar, queue_info, loop_icon
     );
 
     let paragraph = Paragraph::new(status_text)
@@ -220,55 +213,4 @@ fn draw_status(f: &mut Frame, area: Rect, state: &AppState) {
         .block(Block::default().borders(Borders::ALL).title(" Status "));
 
     f.render_widget(paragraph, area);
-}
-
-/// Draw the browser file dialog overlay
-fn draw_browser_dialog(f: &mut Frame, area: Rect, state: &AppState) {
-    if let BrowserFileDialog::Open { path, selected } = &state.browser.dialog {
-        // Calculate centered dialog area
-        let dialog_width = 40;
-        let dialog_height = 8;
-        let x = (area.width.saturating_sub(dialog_width)) / 2;
-        let y = (area.height.saturating_sub(dialog_height)) / 2;
-        let dialog_area = Rect::new(x, y, dialog_width, dialog_height);
-
-        // Clear the area behind dialog
-        f.render_widget(Clear, dialog_area);
-
-        let filename = path
-            .file_name()
-            .map(|s| s.to_string_lossy().to_string())
-            .unwrap_or_else(|| "file".to_string());
-
-        let block = Block::default()
-            .title(format!(" {} ", filename))
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Yellow));
-
-        let inner = block.inner(dialog_area);
-        f.render_widget(block, dialog_area);
-
-        let options = vec![
-            ("▶ Play Now", *selected == 0),
-            ("+ Add to Queue", *selected == 1),
-        ];
-
-        let text: Vec<Line> = options
-            .iter()
-            .map(|(label, is_selected)| {
-                let style = if *is_selected {
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default().fg(Color::Gray)
-                };
-                let prefix = if *is_selected { "> " } else { "  " };
-                Line::from(Span::styled(format!("{}{}", prefix, label), style))
-            })
-            .collect();
-
-        let paragraph = Paragraph::new(text);
-        f.render_widget(paragraph, inner);
-    }
 }

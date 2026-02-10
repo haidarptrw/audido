@@ -5,7 +5,7 @@
 use audido_core::engine::AudioEngineHandle;
 use ratatui::{Frame, crossterm::event::KeyCode, layout::{Rect}, style::{Color, Modifier, Style}, text::{Line, Span}, widgets::{Block, Borders, List, ListItem}};
 
-use crate::{router::{RouteAction, RouteHandler}, routes::eq::EqualizerRoute, state::{AppState, SettingsOption}};
+use crate::{router::{RouteAction, RouteHandler}, routes::eq::EqualizerRoute, state::AppState, states::SettingsOption};
 
 /// Settings route
 #[derive(Debug, Clone)]

@@ -1,7 +1,7 @@
 use audido_core::{dsp::eq::Equalizer, engine::AudioEngineHandle};
 use ratatui::{Frame, crossterm::event::KeyCode, layout::{Constraint, Direction, Layout, Rect}, style::{Color, Modifier, Style}, symbols, text::{Line, Span}, widgets::{Axis, Block, Borders, Chart, Clear, Dataset, GraphType, List, ListItem, Paragraph}};
 
-use crate::{router::{RouteAction, RouteHandler}, state::{AppState, EqFocus, EqMode, SettingsOption}};
+use crate::{router::{RouteAction, RouteHandler}, state::AppState, states::{EqFocus, EqMode, SettingsOption}};
 
 /// Equalizer route
 #[derive(Debug, Clone)]
@@ -25,7 +25,7 @@ impl RouteHandler for EqualizerRoute {
             }
             KeyCode::Up => {
                 match state.eq_state.eq_focus {
-                    crate::state::EqFocus::CurvePanel => {
+                    EqFocus::CurvePanel => {
                         // Increase master gain
                         state.eq_state.local_master_gain =
                             (state.eq_state.local_master_gain + 0.5).min(12.0);
@@ -35,14 +35,14 @@ impl RouteHandler for EqualizerRoute {
                             ),
                         )?;
                     }
-                    crate::state::EqFocus::BandPanel => {
+                    EqFocus::BandPanel => {
                         // Select previous band (in Advanced mode)
                         match state.eq_state.eq_mode {
-                            crate::state::EqMode::Casual => {
+                            EqMode::Casual => {
                                 // state.eq_state.prev_band();
                                 // TODO: implement toggle preset
                             }
-                            crate::state::EqMode::Advanced => {
+                            EqMode::Advanced => {
                                 state.eq_state.prev_band();
                             }
                         }
@@ -51,7 +51,7 @@ impl RouteHandler for EqualizerRoute {
             }
             KeyCode::Down => {
                 match state.eq_state.eq_focus {
-                    crate::state::EqFocus::CurvePanel => {
+                    EqFocus::CurvePanel => {
                         // Decrease master gain
                         state.eq_state.local_master_gain =
                             (state.eq_state.local_master_gain - 0.5).max(-12.0);
@@ -61,7 +61,7 @@ impl RouteHandler for EqualizerRoute {
                             ),
                         )?;
                     }
-                    crate::state::EqFocus::BandPanel => {
+                    EqFocus::BandPanel => {
                         // Select next band (in Advanced mode)
                         state.eq_state.next_band();
                     }
@@ -77,8 +77,8 @@ impl RouteHandler for EqualizerRoute {
             }
             KeyCode::Enter => {
                 match state.eq_state.eq_focus {
-                    crate::state::EqFocus::CurvePanel => {}
-                    crate::state::EqFocus::BandPanel => {
+                    EqFocus::CurvePanel => {}
+                    EqFocus::BandPanel => {
                         // TODO: implement a small modal to modify the filter band parameters
                     }
                 }
@@ -422,7 +422,11 @@ fn draw_settings_dialog(f: &mut Frame, area: Rect, state: &AppState) {
 
 fn draw_eq_graph(f: &mut Frame, area: Rect, state: &AppState) {
     // Create a temporary Equalizer to compute the response curve
-    let sample_rate = state.metadata.as_ref().map_or(44100, |m| m.sample_rate);
+    let sample_rate = state
+        .audio
+        .metadata
+        .as_ref()
+        .map_or(44100, |m| m.sample_rate);
     let mut eq = Equalizer::new(sample_rate, state.eq_state.local_num_channels);
     eq.filters = state.eq_state.local_filters.clone();
     eq.master_gain = 10.0f32.powf(state.eq_state.local_master_gain / 20.0); // Convert dB to linear

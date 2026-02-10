@@ -23,31 +23,31 @@ impl RouteHandler for PlaybackRoute {
     ) -> anyhow::Result<RouteAction> {
         match key {
             KeyCode::Up => {
-                state.volume = (state.volume + 0.1).min(1.0);
+                state.audio.volume = (state.audio.volume + 0.1).min(1.0);
                 handle
                     .cmd_tx
-                    .send(AudioCommand::SetVolume(state.volume))?;
+                    .send(AudioCommand::SetVolume(state.audio.volume))?;
             }
             KeyCode::Down => {
-                state.volume = (state.volume - 0.1).max(0.0);
+                state.audio.volume = (state.audio.volume - 0.1).max(0.0);
                 handle
                     .cmd_tx
-                    .send(AudioCommand::SetVolume(state.volume))?;
+                    .send(AudioCommand::SetVolume(state.audio.volume))?;
             }
             KeyCode::Right => {
-                let new_pos = state.position + 5.0;
+                let new_pos = state.audio.position + 5.0;
                 handle
                     .cmd_tx
                     .send(AudioCommand::Seek(new_pos))?;
             }
             KeyCode::Left => {
-                let new_pos = (state.position - 5.0).max(0.0);
+                let new_pos = (state.audio.position - 5.0).max(0.0);
                 handle
                     .cmd_tx
                     .send(AudioCommand::Seek(new_pos))?;
             }
             KeyCode::Char(' ') => {
-                if state.is_playing {
+                if state.audio.is_playing {
                     handle.cmd_tx.send(AudioCommand::Pause)?;
                 } else {
                     handle.cmd_tx.send(AudioCommand::Play)?;
@@ -113,7 +113,7 @@ fn draw_now_playing(f: &mut Frame, area: Rect, state: &AppState, is_active: bool
     let inner = block.inner(area);
     f.render_widget(block, area);
 
-    if let Some(ref metadata) = state.metadata {
+    if let Some(ref metadata) = state.audio.metadata {
         let title = metadata.title.as_deref().unwrap_or("Unknown Title");
         let artist = metadata.author.as_deref().unwrap_or("Unknown Artist");
         let album = metadata.album.as_deref().unwrap_or("Unknown Album");
@@ -141,8 +141,8 @@ fn draw_now_playing(f: &mut Frame, area: Rect, state: &AppState, is_active: bool
 /// Draw the progress bar
 fn draw_progress(f: &mut Frame, area: Rect, state: &AppState) {
     let progress_pct = (state.progress() * 100.0) as u16;
-    let position_str = AppState::format_time(state.position);
-    let duration_str = AppState::format_time(state.duration);
+    let position_str = AppState::format_time(state.audio.position);
+    let duration_str = AppState::format_time(state.audio.duration);
 
     let label = format!("{} / {}", position_str, duration_str);
 

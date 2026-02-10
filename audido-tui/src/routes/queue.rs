@@ -44,7 +44,7 @@ pub fn draw_queue_panel(f: &mut Frame, area: Rect, state: &AppState) {
     // Panel is active when rendered (router-based system)
     let is_active = true;
 
-    let title = format!(" Queue ({} tracks) ", state.queue.len());
+    let title = format!(" Queue ({} tracks) ", state.queue.queue.len());
     let block = Block::default()
         .title(title)
         .borders(Borders::ALL)
@@ -56,10 +56,11 @@ pub fn draw_queue_panel(f: &mut Frame, area: Rect, state: &AppState) {
 
     let items: Vec<ListItem> = state
         .queue
+        .queue
         .iter()
         .enumerate()
         .map(|(i, item)| {
-            let is_current = state.current_queue_index == Some(i);
+            let is_current = state.queue.current_queue_index == Some(i);
             let prefix = if is_current { "▶ " } else { "  " };
             let name = item
                 .metadata
@@ -97,7 +98,7 @@ pub fn draw_queue_panel(f: &mut Frame, area: Rect, state: &AppState) {
             )
             .highlight_symbol(">> ");
 
-        let mut list_state = state.queue_state.clone();
+        let mut list_state = state.queue.queue_state.clone();
         f.render_stateful_widget(list, area, &mut list_state);
     }
 }

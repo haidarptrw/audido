@@ -21,6 +21,7 @@ mod router;
 mod state;
 mod ui;
 mod routes;
+mod states;
 
 use router::{Router, route_for_name, tab_names};
 use state::AppState;
@@ -125,17 +126,17 @@ fn setup_initial_state(
 
         if let Some(dir) = target_dir {
             if let Ok(items) = browser::get_directory_content(&dir) {
-                state.browser.current_dir = dir;
-                state.browser.items = items;
-                state.browser.list_state.select(Some(0));
-                log::info!("Browser context set to: {:?}", state.browser.current_dir);
+                state.browser_state.current_dir = dir;
+                state.browser_state.items = items;
+                state.browser_state.list_state.select(Some(0));
+                log::info!("Browser context set to: {:?}", state.browser_state.current_dir);
             }
         }
     }
 
     log::info!("Adding {} files to queue from CLI", files.len());
     handle.cmd_tx.send(AudioCommand::AddToQueue(files))?;
-    state.status_message = "Loading queue...".to_string();
+    state.audio.status_message = "Loading queue...".to_string();
 
     Ok(())
 }
@@ -153,31 +154,6 @@ fn handle_global_keys(
             let _ = handle.cmd_tx.send(AudioCommand::Quit);
             return Ok(true);
         }
-        // KeyCode::Char(' ') => {
-        //     if state.is_playing {
-        //         handle.cmd_tx.send(AudioCommand::Pause)?;
-        //     } else {
-        //         handle.cmd_tx.send(AudioCommand::Play)?;
-        //     }
-        //     return Ok(false);
-        // }
-        // KeyCode::Char('s') => {
-        //     handle.cmd_tx.send(AudioCommand::Stop)?;
-        //     return Ok(false);
-        // }
-        // KeyCode::Char('n') => {
-        //     handle.cmd_tx.send(AudioCommand::Next)?;
-        //     return Ok(false);
-        // }
-        // KeyCode::Char('p') => {
-        //     handle.cmd_tx.send(AudioCommand::Previous)?;
-        //     return Ok(false);
-        // }
-        // KeyCode::Char('l') => {
-        //     let next_mode = state.next_loop_mode();
-        //     handle.cmd_tx.send(AudioCommand::SetLoopMode(next_mode))?;
-        //     return Ok(false);
-        // }
         KeyCode::Tab => {
             // Cycle through tabs
             let tabs = tab_names();
