@@ -1,10 +1,10 @@
 use audido_core::queue::LoopMode;
 use ratatui::{
     Frame,
-    layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
-    text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
+    layout::{ Alignment, Constraint, Direction, Layout, Rect },
+    style::{ Color, Modifier, Style },
+    text::{ Line, Span },
+    widgets::{ Block, Borders, Clear, Paragraph },
 };
 
 use crate::state::AppState;
@@ -17,7 +17,7 @@ pub fn draw(f: &mut Frame, state: &AppState, router: &crate::router::Router) {
         .margin(1)
         .constraints([
             Constraint::Length(15), // Sidebar navigation
-            Constraint::Min(40),    // Main content area
+            Constraint::Min(40), // Main content area
         ])
         .split(f.area());
 
@@ -37,15 +37,14 @@ fn draw_sidebar(f: &mut Frame, area: Rect, _state: &AppState, router: &crate::ro
 
     // Navigation items - generated from router tab names
     let current_route_name = router.current().name();
-    let nav_text: Vec<Line> = crate::router::tab_names()
+    let nav_text: Vec<Line> = crate::router
+        ::tab_names()
         .iter()
         .map(|tab_name| {
             let is_active = *tab_name == current_route_name;
             let prefix = if is_active { "▶ " } else { "  " };
             let style = if is_active {
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD)
+                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(Color::Gray)
             };
@@ -64,7 +63,7 @@ fn draw_main_content(f: &mut Frame, area: Rect, state: &AppState, router: &crate
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Min(0),    // Panel specific content
+            Constraint::Min(0), // Panel specific content
             Constraint::Length(3), // Controls info
             Constraint::Length(3), // Status bar
         ])
@@ -99,7 +98,7 @@ fn draw_controls(f: &mut Frame, area: Rect, _state: &AppState, router: &crate::r
                 Span::styled("[Tab]", Style::default().fg(Color::Magenta)),
                 Span::raw(" Switch Tab  "),
                 Span::styled("[Q]", Style::default().fg(Color::Red)),
-                Span::raw(" Quit"),
+                Span::raw(" Quit")
             ]
         }
         "Queue" => {
@@ -115,7 +114,7 @@ fn draw_controls(f: &mut Frame, area: Rect, _state: &AppState, router: &crate::r
                 Span::styled("[Tab]", Style::default().fg(Color::Magenta)),
                 Span::raw(" Switch Tab  "),
                 Span::styled("[Q]", Style::default().fg(Color::Red)),
-                Span::raw(" Quit"),
+                Span::raw(" Quit")
             ]
         }
         "Log" => {
@@ -125,7 +124,7 @@ fn draw_controls(f: &mut Frame, area: Rect, _state: &AppState, router: &crate::r
                 Span::styled("[Tab]", Style::default().fg(Color::Magenta)),
                 Span::raw(" Switch Tab  "),
                 Span::styled("[Q]", Style::default().fg(Color::Red)),
-                Span::raw(" Quit"),
+                Span::raw(" Quit")
             ]
         }
         "Browser" | "File Options" => {
@@ -137,7 +136,7 @@ fn draw_controls(f: &mut Frame, area: Rect, _state: &AppState, router: &crate::r
                 Span::styled("[Tab]", Style::default().fg(Color::Magenta)),
                 Span::raw(" Switch Tab  "),
                 Span::styled("[Q]", Style::default().fg(Color::Red)),
-                Span::raw(" Quit"),
+                Span::raw(" Quit")
             ]
         }
         "Settings" => {
@@ -149,7 +148,7 @@ fn draw_controls(f: &mut Frame, area: Rect, _state: &AppState, router: &crate::r
                 Span::styled("[Tab]", Style::default().fg(Color::Magenta)),
                 Span::raw(" Switch Tab  "),
                 Span::styled("[Q]", Style::default().fg(Color::Red)),
-                Span::raw(" Quit"),
+                Span::raw(" Quit")
             ]
         }
         "Equalizer" => {
@@ -165,7 +164,7 @@ fn draw_controls(f: &mut Frame, area: Rect, _state: &AppState, router: &crate::r
                 Span::styled("[Esc]", Style::default().fg(Color::Yellow)),
                 Span::raw(" Back  "),
                 Span::styled("[Q]", Style::default().fg(Color::Red)),
-                Span::raw(" Quit"),
+                Span::raw(" Quit")
             ]
         }
         _ => {
@@ -173,13 +172,14 @@ fn draw_controls(f: &mut Frame, area: Rect, _state: &AppState, router: &crate::r
                 Span::styled("[Tab]", Style::default().fg(Color::Magenta)),
                 Span::raw(" Switch Tab  "),
                 Span::styled("[Q]", Style::default().fg(Color::Red)),
-                Span::raw(" Quit"),
+                Span::raw(" Quit")
             ]
         }
     };
 
-    let paragraph = Paragraph::new(Line::from(controls))
-        .block(Block::default().borders(Borders::ALL).title(" Controls "));
+    let paragraph = Paragraph::new(Line::from(controls)).block(
+        Block::default().borders(Borders::ALL).title(" Controls ")
+    );
 
     f.render_widget(paragraph, area);
 }
@@ -205,7 +205,10 @@ fn draw_status(f: &mut Frame, area: Rect, state: &AppState) {
     let queue_info = format!("Queue: {}", state.queue.queue.len());
     let status_text = format!(
         "{}  |  {}  |  {}  |  {}",
-        state.audio.status_message, volume_bar, queue_info, loop_icon
+        state.audio.status_message,
+        volume_bar,
+        queue_info,
+        loop_icon
     );
 
     let paragraph = Paragraph::new(status_text)
@@ -213,4 +216,59 @@ fn draw_status(f: &mut Frame, area: Rect, state: &AppState) {
         .block(Block::default().borders(Borders::ALL).title(" Status "));
 
     f.render_widget(paragraph, area);
+}
+
+pub struct DialogProperties<'a> {
+    // dialog title
+    pub title: &'a str,
+    // list of options and its callbacks
+    pub options: Vec<&'a str>,
+    pub selected_index: usize,
+}
+
+/// Draw a generic dialog with given properties
+pub fn draw_generic_dialog(f: &mut Frame, area: Rect, props: DialogProperties) {
+    // We make the height dynamic based on options count, with a minimum
+    let height = (props.options.len() as u16) + 4;
+    let width = 40;
+
+    let x = area.x + area.width.saturating_sub(width) / 2;
+    let y = area.y + area.height.saturating_sub(height) / 2;
+    let dialog_area = Rect::new(x, y, width, height);
+
+    // Clear the area behind the dialog (so it looks like an overlay)
+    f.render_widget(Clear, dialog_area);
+
+    // Create the Block
+    let block = Block::default()
+        .title(format!(" {} ", props.title))
+        .title_alignment(Alignment::Center)
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Yellow));
+
+    let inner_area = block.inner(dialog_area);
+    f.render_widget(block, dialog_area);
+
+    // Render the Options
+    // We map the raw strings into styled Lines based on the selected_index
+    let text: Vec<Line> = props.options
+        .iter()
+        .enumerate()
+        .map(|(i, label)| {
+            let is_selected = i == props.selected_index;
+
+            let style = if is_selected {
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::Gray)
+            };
+
+            let prefix = if is_selected { "▶ " } else { "  " };
+
+            Line::from(Span::styled(format!("{}{}", prefix, label), style))
+        })
+        .collect();
+
+    let paragraph = Paragraph::new(text);
+    f.render_widget(paragraph, inner_area);
 }

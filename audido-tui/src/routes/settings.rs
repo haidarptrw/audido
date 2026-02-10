@@ -23,8 +23,8 @@ impl RouteHandler for SettingsRoute {
         _handle: &AudioEngineHandle,
     ) -> anyhow::Result<RouteAction> {
         match key {
-            KeyCode::Up => state.settings_state.prev_item(),
-            KeyCode::Down => state.settings_state.next_item(),
+            KeyCode::Up => state.settings.prev_item(),
+            KeyCode::Down => state.settings.next_item(),
             KeyCode::Enter => {
                 // Navigate to EQ panel
                 return Ok(RouteAction::Push(Box::new(EqualizerRoute)));
@@ -75,17 +75,17 @@ fn draw_settings_list(f: &mut Frame, area: Rect, state: &AppState, is_active: bo
     f.render_widget(block, area);
 
     let items: Vec<ListItem> = state
-        .settings_state
+        .settings
         .items
         .iter()
         .enumerate()
         .map(|(i, setting)| {
             let is_selected =
-                state.settings_state.selected_index == i && !state.settings_state.is_dialog_open;
+                state.settings.selected_index == i && !state.settings.is_dialog_open;
 
             let value_str = match setting {
                 SettingsOption::Equalizer => {
-                    if state.eq_state.eq_enabled {
+                    if state.eq.eq_enabled {
                         "On"
                     } else {
                         "Off"

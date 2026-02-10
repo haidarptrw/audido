@@ -21,62 +21,62 @@ impl RouteHandler for EqualizerRoute {
         match key {
             KeyCode::Left | KeyCode::Right => {
                 // Toggle focus between curve panel and band panel
-                state.eq_state.toggle_focus();
+                state.eq.toggle_focus();
             }
             KeyCode::Up => {
-                match state.eq_state.eq_focus {
+                match state.eq.eq_focus {
                     EqFocus::CurvePanel => {
                         // Increase master gain
-                        state.eq_state.local_master_gain =
-                            (state.eq_state.local_master_gain + 0.5).min(12.0);
+                        state.eq.local_master_gain =
+                            (state.eq.local_master_gain + 0.5).min(12.0);
                         handle.cmd_tx.send(
                             audido_core::commands::AudioCommand::EqSetMasterGain(
-                                state.eq_state.local_master_gain,
+                                state.eq.local_master_gain,
                             ),
                         )?;
                     }
                     EqFocus::BandPanel => {
                         // Select previous band (in Advanced mode)
-                        match state.eq_state.eq_mode {
+                        match state.eq.eq_mode {
                             EqMode::Casual => {
                                 // state.eq_state.prev_band();
                                 // TODO: implement toggle preset
                             }
                             EqMode::Advanced => {
-                                state.eq_state.prev_band();
+                                state.eq.prev_band();
                             }
                         }
                     }
                 }
             }
             KeyCode::Down => {
-                match state.eq_state.eq_focus {
+                match state.eq.eq_focus {
                     EqFocus::CurvePanel => {
                         // Decrease master gain
-                        state.eq_state.local_master_gain =
-                            (state.eq_state.local_master_gain - 0.5).max(-12.0);
+                        state.eq.local_master_gain =
+                            (state.eq.local_master_gain - 0.5).max(-12.0);
                         handle.cmd_tx.send(
                             audido_core::commands::AudioCommand::EqSetMasterGain(
-                                state.eq_state.local_master_gain,
+                                state.eq.local_master_gain,
                             ),
                         )?;
                     }
                     EqFocus::BandPanel => {
                         // Select next band (in Advanced mode)
-                        state.eq_state.next_band();
+                        state.eq.next_band();
                     }
                 }
             }
             KeyCode::Char('t') => {
-                state.eq_state.toggle_enabled();
+                state.eq.toggle_enabled();
                 handle
                     .cmd_tx
                     .send(audido_core::commands::AudioCommand::EqSetEnabled(
-                        state.eq_state.eq_enabled,
+                        state.eq.eq_enabled,
                     ))?;
             }
             KeyCode::Enter => {
-                match state.eq_state.eq_focus {
+                match state.eq.eq_focus {
                     EqFocus::CurvePanel => {}
                     EqFocus::BandPanel => {
                         // TODO: implement a small modal to modify the filter band parameters
@@ -84,17 +84,17 @@ impl RouteHandler for EqualizerRoute {
                 }
             }
             KeyCode::Char('m') => {
-                state.eq_state.toggle_mode();
+                state.eq.toggle_mode();
             }
             KeyCode::Char('a') => {
-                if state.eq_state.local_filters.len() < 8 {
-                    let new_id = state.eq_state.local_filters.len() as i16;
+                if state.eq.local_filters.len() < 8 {
+                    let new_id = state.eq.local_filters.len() as i16;
                     let new_filter = audido_core::dsp::eq::FilterNode::new(new_id, 1000.0);
-                    state.eq_state.local_filters.push(new_filter);
+                    state.eq.local_filters.push(new_filter);
                     handle
                         .cmd_tx
                         .send(audido_core::commands::AudioCommand::EqSetAllFilters(
-                            state.eq_state.local_filters.clone(),
+                            state.eq.local_filters.clone(),
                         ))?;
                 }
             }
@@ -108,12 +108,12 @@ impl RouteHandler for EqualizerRoute {
     }
 
     fn on_enter(&mut self, state: &mut AppState, _handle: &AudioEngineHandle) -> anyhow::Result<()> {
-        state.eq_state.open_panel();
+        state.eq.open_panel();
         Ok(())
     }
 
     fn on_exit(&mut self, state: &mut AppState, _handle: &AudioEngineHandle) -> anyhow::Result<()> {
-        state.eq_state.close_panel();
+        state.eq.close_panel();
         Ok(())
     }
 }
@@ -143,8 +143,8 @@ pub fn draw_eq_panel(f: &mut Frame, area: Rect, state: &AppState) {
 }
 
 fn draw_eq_mode_toggle(f: &mut Frame, area: Rect, state: &AppState) {
-    let is_casual = state.eq_state.eq_mode == EqMode::Casual;
-    let is_enabled = state.eq_state.eq_enabled;
+    let is_casual = state.eq.eq_mode == EqMode::Casual;
+    let is_enabled = state.eq.eq_enabled;
 
     let enabled_style = if is_enabled {
         Style::default()
@@ -192,7 +192,7 @@ fn draw_eq_mode_toggle(f: &mut Frame, area: Rect, state: &AppState) {
 }
 
 fn draw_eq_controls(f: &mut Frame, area: Rect, state: &AppState) {
-    let is_casual = state.eq_state.eq_mode == EqMode::Casual;
+    let is_casual = state.eq.eq_mode == EqMode::Casual;
 
     if is_casual {
         // Casual mode: Show preset selector and master gain
@@ -205,7 +205,7 @@ fn draw_eq_controls(f: &mut Frame, area: Rect, state: &AppState) {
             .split(area);
 
         // Determine if band panel is focused
-        let is_band_focused = state.eq_state.eq_focus == EqFocus::BandPanel;
+        let is_band_focused = state.eq.eq_focus == EqFocus::BandPanel;
         let band_border_style = if is_band_focused {
             Style::default()
                 .fg(Color::Cyan)
@@ -215,7 +215,7 @@ fn draw_eq_controls(f: &mut Frame, area: Rect, state: &AppState) {
         };
 
         // Preset selector
-        let preset_label = format!("{:?}", state.eq_state.local_preset);
+        let preset_label = format!("{:?}", state.eq.local_preset);
         let preset_paragraph = Paragraph::new(Line::from(vec![
             Span::styled("Preset: ", Style::default().fg(Color::Gray)),
             Span::styled(
@@ -238,7 +238,7 @@ fn draw_eq_controls(f: &mut Frame, area: Rect, state: &AppState) {
         f.render_widget(preset_paragraph, chunks[0]);
 
         // Master gain
-        let gain_value = state.eq_state.local_master_gain;
+        let gain_value = state.eq.local_master_gain;
         let gain_display = if gain_value >= 0.0 {
             format!("+{:.1} dB", gain_value)
         } else {
@@ -273,7 +273,7 @@ fn draw_eq_controls(f: &mut Frame, area: Rect, state: &AppState) {
             .split(area);
 
         // Determine if band panel is focused
-        let is_band_focused = state.eq_state.eq_focus == EqFocus::BandPanel;
+        let is_band_focused = state.eq.eq_focus == EqFocus::BandPanel;
         let band_border_style = if is_band_focused {
             Style::default()
                 .fg(Color::Cyan)
@@ -284,12 +284,12 @@ fn draw_eq_controls(f: &mut Frame, area: Rect, state: &AppState) {
 
         // Filter band list
         let filter_items: Vec<ListItem> = state
-            .eq_state
+            .eq
             .local_filters
             .iter()
             .enumerate()
             .map(|(i, filter)| {
-                let is_selected = i == state.eq_state.eq_selected_band;
+                let is_selected = i == state.eq.eq_selected_band;
                 let prefix = if is_selected { "▶ " } else { "  " };
                 let style = if is_selected {
                     Style::default()
@@ -327,7 +327,7 @@ fn draw_eq_controls(f: &mut Frame, area: Rect, state: &AppState) {
             );
 
             let mut list_state = ratatui::widgets::ListState::default();
-            list_state.select(Some(state.eq_state.eq_selected_band));
+            list_state.select(Some(state.eq.eq_selected_band));
             f.render_stateful_widget(list, chunks[0], &mut list_state);
             return draw_filter_details(f, chunks[1], state);
         };
@@ -342,7 +342,7 @@ fn draw_eq_controls(f: &mut Frame, area: Rect, state: &AppState) {
 }
 
 fn draw_filter_details(f: &mut Frame, area: Rect, state: &AppState) {
-    if state.eq_state.local_filters.is_empty() {
+    if state.eq.local_filters.is_empty() {
         let details = Paragraph::new("No band selected")
             .style(Style::default().fg(Color::DarkGray))
             .block(Block::default().borders(Borders::ALL).title(" Details "));
@@ -350,7 +350,7 @@ fn draw_filter_details(f: &mut Frame, area: Rect, state: &AppState) {
         return;
     }
 
-    let filter = &state.eq_state.local_filters[state.eq_state.eq_selected_band];
+    let filter = &state.eq.local_filters[state.eq.eq_selected_band];
     let params = [
         ("Type", format!("{:?}", filter.filter_type)),
         ("Freq", format!("{} Hz", filter.freq as i32)),
@@ -375,7 +375,7 @@ fn draw_filter_details(f: &mut Frame, area: Rect, state: &AppState) {
 
 #[allow(dead_code)]
 fn draw_settings_dialog(f: &mut Frame, area: Rect, state: &AppState) {
-    let selected_setting = state.settings_state.items[state.settings_state.selected_index];
+    let selected_setting = state.settings.items[state.settings.selected_index];
 
     let choices = match selected_setting {
         SettingsOption::Equalizer => {
@@ -403,7 +403,7 @@ fn draw_settings_dialog(f: &mut Frame, area: Rect, state: &AppState) {
         .iter()
         .enumerate()
         .map(|(i, choice)| {
-            let is_selected = i == state.settings_state.dialog_selection_index;
+            let is_selected = i == state.settings.dialog_selection_index;
             let prefix = if is_selected { "● " } else { "○ " };
             let style = if is_selected {
                 Style::default()
@@ -427,9 +427,9 @@ fn draw_eq_graph(f: &mut Frame, area: Rect, state: &AppState) {
         .metadata
         .as_ref()
         .map_or(44100, |m| m.sample_rate);
-    let mut eq = Equalizer::new(sample_rate, state.eq_state.local_num_channels);
-    eq.filters = state.eq_state.local_filters.clone();
-    eq.master_gain = 10.0f32.powf(state.eq_state.local_master_gain / 20.0); // Convert dB to linear
+    let mut eq = Equalizer::new(sample_rate, state.eq.local_num_channels);
+    eq.filters = state.eq.local_filters.clone();
+    eq.master_gain = 10.0f32.powf(state.eq.local_master_gain / 20.0); // Convert dB to linear
     eq.parameters_changed();
 
     let width = 100;
@@ -447,7 +447,7 @@ fn draw_eq_graph(f: &mut Frame, area: Rect, state: &AppState) {
 
     let mut filter_curves: Vec<Vec<(f64, f64)>> = Vec::new();
 
-    for filter in &state.eq_state.local_filters {
+    for filter in &state.eq.local_filters {
         let mut curve_points = Vec::with_capacity(width);
         
         // Generate points across the frequency spectrum for this single filter
@@ -470,14 +470,14 @@ fn draw_eq_graph(f: &mut Frame, area: Rect, state: &AppState) {
 
     // Create filter center points for visualization (also in log scale)
     let filter_points: Vec<(f64, f64)> = state
-        .eq_state
+        .eq
         .local_filters
         .iter()
         .map(|filter| {
             // Calculate the total response at the filter's center frequency
             // local_master_gain is already in dB, so use it directly
-            let mut total_db = state.eq_state.local_master_gain;
-            for flt in &state.eq_state.local_filters {
+            let mut total_db = state.eq.local_master_gain;
+            for flt in &state.eq.local_filters {
                 total_db += flt.magnitude_db(filter.freq, sample_rate as f32);
             }
             ((filter.freq as f64).log10(), total_db as f64)
@@ -509,7 +509,7 @@ fn draw_eq_graph(f: &mut Frame, area: Rect, state: &AppState) {
     ];
 
     // Determine border style based on focus
-    let is_focused = state.eq_state.eq_focus == EqFocus::CurvePanel;
+    let is_focused = state.eq.eq_focus == EqFocus::CurvePanel;
     let border_style = if is_focused {
         Style::default()
             .fg(Color::Cyan)

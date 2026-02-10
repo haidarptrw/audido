@@ -126,10 +126,10 @@ fn setup_initial_state(
 
         if let Some(dir) = target_dir {
             if let Ok(items) = browser::get_directory_content(&dir) {
-                state.browser_state.current_dir = dir;
-                state.browser_state.items = items;
-                state.browser_state.list_state.select(Some(0));
-                log::info!("Browser context set to: {:?}", state.browser_state.current_dir);
+                state.browser.current_dir = dir;
+                state.browser.items = items;
+                state.browser.list_state.select(Some(0));
+                log::info!("Browser context set to: {:?}", state.browser.current_dir);
             }
         }
     }

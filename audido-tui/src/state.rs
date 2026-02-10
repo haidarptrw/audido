@@ -1,4 +1,5 @@
 use audido_core::{commands::AudioResponse, queue::LoopMode};
+use strum::IntoEnumIterator;
 
 use crate::states::{
     AudioState, BrowserState, EqState, QueueState,
@@ -10,23 +11,23 @@ pub struct AppState {
     /// Audio playback state
     pub audio: AudioState,
     /// Browser state
-    pub browser_state: BrowserState,
+    pub browser: BrowserState,
     /// Queue state
     pub queue: QueueState,
     /// EQ State
-    pub eq_state: EqState,
+    pub eq: EqState,
     /// Settings State
-    pub settings_state: SettingsState,
+    pub settings: SettingsState,
 }
 
 impl AppState {
     pub fn new() -> Self {
         Self {
             audio: AudioState::new(),
-            browser_state: BrowserState::new(),
+            browser: BrowserState::new(),
             queue: QueueState::new(),
-            eq_state: EqState::new(),
-            settings_state: SettingsState::new(),
+            eq: EqState::new(),
+            settings: SettingsState::new(),
         }
     }
 
@@ -152,11 +153,14 @@ impl AppState {
 
     /// Cycle to the next loop mode
     pub fn next_loop_mode(&self) -> LoopMode {
-        match self.queue.loop_mode {
-            LoopMode::Off => LoopMode::RepeatOne,
-            LoopMode::RepeatOne => LoopMode::LoopAll,
-            LoopMode::LoopAll => LoopMode::Shuffle,
-            LoopMode::Shuffle => LoopMode::Off,
+        // use strum enum iter
+        let mut modes = LoopMode::iter();
+        for mode in modes.by_ref() {
+            if mode == self.queue.loop_mode {
+                break;
+            }
         }
+        // Return the next mode in the sequence, or the first if at the end
+        modes.next().unwrap_or_else(|| LoopMode::Off)
     }
 }

@@ -1,9 +1,11 @@
 use std::path::PathBuf;
 
+use strum::EnumIter;
+
 use crate::metadata::AudioMetadata;
 
 /// Loop/repeat mode for queue playback
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, EnumIter)]
 pub enum LoopMode {
     #[default]
     Off,
