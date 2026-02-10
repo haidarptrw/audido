@@ -38,6 +38,7 @@ pub trait RouteHandler: std::fmt::Debug {
         true
     }
 
+    #[allow(dead_code)]
     fn help_items(&self, _state: &AppState) -> Vec<(&str, &str)> {
         vec![
             ("Tab", "Switch Tab"),
