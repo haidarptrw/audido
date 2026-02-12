@@ -24,4 +24,3 @@ impl QueueState {
         self.queue.is_empty()
     }
 }
-

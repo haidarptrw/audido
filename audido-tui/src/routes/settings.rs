@@ -3,9 +3,21 @@
 // ============================================================================
 
 use audido_core::engine::AudioEngineHandle;
-use ratatui::{Frame, crossterm::event::KeyCode, layout::{Rect}, style::{Color, Modifier, Style}, text::{Line, Span}, widgets::{Block, Borders, List, ListItem}};
+use ratatui::{
+    Frame,
+    crossterm::event::KeyCode,
+    layout::Rect,
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
+    widgets::{Block, Borders, List, ListItem},
+};
 
-use crate::{router::{RouteAction, RouteHandler}, routes::eq::EqualizerRoute, state::AppState, states::SettingsOption};
+use crate::{
+    router::{RouteAction, RouteHandler},
+    routes::eq::EqualizerRoute,
+    state::AppState,
+    states::{EqState, SettingsOption, SettingsState},
+};
 
 /// Settings route
 #[derive(Debug, Clone)]
@@ -13,7 +25,7 @@ pub struct SettingsRoute;
 
 impl RouteHandler for SettingsRoute {
     fn render(&self, frame: &mut Frame, area: Rect, state: &AppState) {
-        draw_settings_panel(frame, area, state);
+        draw_settings_panel(frame, area, &state.settings, &state.eq);
     }
 
     fn handle_input(
@@ -39,29 +51,24 @@ impl RouteHandler for SettingsRoute {
     }
 }
 
-pub fn draw_settings_panel(f: &mut Frame, area: Rect, state: &AppState) {
+pub fn draw_settings_panel(
+    f: &mut Frame,
+    area: Rect,
+    settings_state: &SettingsState,
+    eq_state: &EqState,
+) {
     // Panel is active when rendered (router-based system)
     let is_active = true;
-
-    // If EQ panel is open, split area for settings list and EQ panel
-    // if state.eq_state.show_eq {
-    //     let chunks = Layout::default()
-    //         .direction(Direction::Horizontal)
-    //         .constraints([
-    //             Constraint::Percentage(35), // Settings list
-    //             Constraint::Percentage(65), // EQ Panel
-    //         ])
-    //         .split(area);
-
-    //     draw_settings_list(f, chunks[0], state, is_active);
-    //     draw_eq_panel(f, chunks[1], state);
-    // } else {
-    //     draw_settings_list(f, area, state, is_active);
-    // }
-    draw_settings_list(f, area, state, is_active);
+    draw_settings_list(f, area, settings_state, eq_state, is_active);
 }
 
-fn draw_settings_list(f: &mut Frame, area: Rect, state: &AppState, is_active: bool) {
+fn draw_settings_list(
+    f: &mut Frame,
+    area: Rect,
+    settings_state: &SettingsState,
+    eq_state: &EqState,
+    is_active: bool,
+) {
     let block = Block::default()
         .title(" Settings ")
         .borders(Borders::ALL)
@@ -74,18 +81,16 @@ fn draw_settings_list(f: &mut Frame, area: Rect, state: &AppState, is_active: bo
     let inner = block.inner(area);
     f.render_widget(block, area);
 
-    let items: Vec<ListItem> = state
-        .settings
+    let items: Vec<ListItem> = settings_state
         .items
         .iter()
         .enumerate()
         .map(|(i, setting)| {
-            let is_selected =
-                state.settings.selected_index == i && !state.settings.is_dialog_open;
+            let is_selected = settings_state.selected_index == i && !settings_state.is_dialog_open;
 
             let value_str = match setting {
                 SettingsOption::Equalizer => {
-                    if state.eq.eq_enabled {
+                    if eq_state.eq_enabled {
                         "On"
                     } else {
                         "Off"

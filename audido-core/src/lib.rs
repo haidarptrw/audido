@@ -1,7 +1,7 @@
-pub mod metadata;
+pub mod browser;
+pub mod commands;
 pub mod dsp;
 pub mod engine;
-pub mod source;
-pub mod commands;
+pub mod metadata;
 pub mod queue;
-pub mod browser;
+pub mod source;

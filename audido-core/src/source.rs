@@ -1,4 +1,13 @@
-use std::{ fs::File, path::Path, sync::{ Arc, Mutex, atomic::{ AtomicUsize, Ordering } }, thread, time::Instant };
+use std::{
+    fs::File,
+    path::Path,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
+    },
+    thread,
+    time::Instant,
+};
 
 use anyhow::Context;
 use crossbeam_channel::Receiver;
@@ -12,7 +21,7 @@ use crate::{
 };
 
 const CHUNK_SIZE: usize = 512;
-use crate::{ dsp::pitch_detection::{SongKeyArgsBuilder, detect_song_key} };
+use crate::dsp::pitch_detection::{SongKeyArgsBuilder, detect_song_key};
 
 /// Shared position tracker between source and engine
 #[derive(Clone)]
@@ -70,9 +79,7 @@ pub struct AudioPlaybackData {
 }
 
 pub enum AudioSource {
-    Local {
-        data: AudioPlaybackData,
-    },
+    Local { data: AudioPlaybackData },
 }
 
 impl AudioPlaybackData {
@@ -172,9 +179,9 @@ impl AudioPlaybackData {
 
         // Lock mutex and update metadata
         {
-            let mut meta = metadata.lock().map_err(|e| {
-                anyhow::anyhow!("Failed to lock metadata mutex: {}", e)
-            })?;
+            let mut meta = metadata
+                .lock()
+                .map_err(|e| anyhow::anyhow!("Failed to lock metadata mutex: {}", e))?;
             meta.key = Some(key);
             log::info!(
                 "Audio analysis completed in {:?}. Detected key: {:?}",
@@ -186,7 +193,6 @@ impl AudioPlaybackData {
         Ok(())
     }
 
-
     //// Get audio metadata from loaded file (title, author, album, genre, etc)
     fn read_audio_metadata(path: &str, metadata: &mut AudioMetadata) -> anyhow::Result<()> {
         match Probe::open(path).and_then(|p| p.read()) {
@@ -197,7 +203,11 @@ impl AudioPlaybackData {
                     metadata.album = tag.album().map(|s| s.to_string());
                     metadata.genre = tag.genre().map(|s| s.to_string());
 
-                    log::info!("Metadata loaded: {:?} by {:?}", metadata.title, metadata.author);
+                    log::info!(
+                        "Metadata loaded: {:?} by {:?}",
+                        metadata.title,
+                        metadata.author
+                    );
                 }
             }
             Err(e) => {
@@ -371,7 +381,9 @@ impl Source for BufferedSource {
 
     fn total_duration(&self) -> Option<std::time::Duration> {
         let frames = self.samples.len() / (self.channels as usize);
-        Some(std::time::Duration::from_secs_f64((frames as f64) / (self.sample_rate as f64)))
+        Some(std::time::Duration::from_secs_f64(
+            (frames as f64) / (self.sample_rate as f64),
+        ))
     }
 }
 

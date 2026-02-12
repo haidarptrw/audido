@@ -1,6 +1,6 @@
 use std::fs;
-use std::path::{Path, PathBuf};
 use std::io;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone)]
 pub struct FileEntry {
@@ -28,13 +28,16 @@ pub fn get_directory_content(path: &Path) -> io::Result<Vec<FileEntry>> {
                 let is_dir = entry_path.is_dir();
 
                 // Filter: Include directories and supported audio files
-                let should_include = is_dir || entry_path.extension()
-                    .and_then(|ext| ext.to_str())
-                    .map(|ext| SUPPORTED_EXTENSIONS.contains(&ext.to_lowercase().as_str()))
-                    .unwrap_or(false);
+                let should_include = is_dir
+                    || entry_path
+                        .extension()
+                        .and_then(|ext| ext.to_str())
+                        .map(|ext| SUPPORTED_EXTENSIONS.contains(&ext.to_lowercase().as_str()))
+                        .unwrap_or(false);
 
                 if should_include {
-                    let name = entry_path.file_name()
+                    let name = entry_path
+                        .file_name()
                         .and_then(|n| n.to_str())
                         .unwrap_or("???")
                         .to_string();
@@ -50,26 +53,30 @@ pub fn get_directory_content(path: &Path) -> io::Result<Vec<FileEntry>> {
     }
 
     // Sort: Directories first, then alphabetical
-    entries.sort_by(|a, b| {
-        match (a.is_dir, b.is_dir) {
-            (true, false) => std::cmp::Ordering::Less,
-            (false, true) => std::cmp::Ordering::Greater,
-            _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
-        }
+    entries.sort_by(|a, b| match (a.is_dir, b.is_dir) {
+        (true, false) => std::cmp::Ordering::Less,
+        (false, true) => std::cmp::Ordering::Greater,
+        _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
     });
 
     if let Some(parent) = path.parent() {
-        entries.insert(0, FileEntry {
-            name: "..".to_string(),
-            path: parent.to_path_buf(),
-            is_dir: true,
-        });
+        entries.insert(
+            0,
+            FileEntry {
+                name: "..".to_string(),
+                path: parent.to_path_buf(),
+                is_dir: true,
+            },
+        );
     } else {
-        entries.insert(0, FileEntry {
-            name: "..".to_string(),
-            path: PathBuf::from(""), 
-            is_dir: true,
-        });
+        entries.insert(
+            0,
+            FileEntry {
+                name: "..".to_string(),
+                path: PathBuf::from(""),
+                is_dir: true,
+            },
+        );
     }
 
     Ok(entries)
@@ -86,7 +93,7 @@ fn get_system_drives() -> Vec<FileEntry> {
             let drive_letter = c as char;
             let root_str = format!("{}:\\", drive_letter);
             let root_path = PathBuf::from(&root_str);
-            
+
             // Check if drive exists (this handles C:\, D:\, etc.)
             if root_path.exists() {
                 drives.push(FileEntry {

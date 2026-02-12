@@ -1,7 +1,17 @@
 use audido_core::engine::AudioEngineHandle;
-use ratatui::{Frame, crossterm::event::KeyCode, layout::Rect, style::{Color, Modifier, Style}, widgets::{Block, Borders, List, ListItem, Paragraph}};
+use ratatui::{
+    Frame,
+    crossterm::event::KeyCode,
+    layout::Rect,
+    style::{Color, Modifier, Style},
+    widgets::{Block, Borders, List, ListItem, Paragraph},
+};
 
-use crate::{router::{RouteAction, RouteHandler}, state::AppState};
+use crate::{
+    router::{RouteAction, RouteHandler},
+    state::AppState,
+    states::QueueState,
+};
 
 /// Queue route
 #[derive(Debug, Clone)]
@@ -9,7 +19,7 @@ pub struct QueueRoute;
 
 impl RouteHandler for QueueRoute {
     fn render(&self, frame: &mut Frame, area: Rect, state: &AppState) {
-        draw_queue_panel(frame, area, state);
+        draw_queue_panel(frame, area, &state.queue);
     }
 
     fn handle_input(
@@ -38,13 +48,12 @@ impl RouteHandler for QueueRoute {
     }
 }
 
-
 /// Draw the queue panel
-pub fn draw_queue_panel(f: &mut Frame, area: Rect, state: &AppState) {
+pub fn draw_queue_panel(f: &mut Frame, area: Rect, queue_state: &QueueState) {
     // Panel is active when rendered (router-based system)
     let is_active = true;
 
-    let title = format!(" Queue ({} tracks) ", state.queue.queue.len());
+    let title = format!(" Queue ({} tracks) ", queue_state.queue.len());
     let block = Block::default()
         .title(title)
         .borders(Borders::ALL)
@@ -54,13 +63,12 @@ pub fn draw_queue_panel(f: &mut Frame, area: Rect, state: &AppState) {
             Style::default()
         });
 
-    let items: Vec<ListItem> = state
-        .queue
+    let items: Vec<ListItem> = queue_state
         .queue
         .iter()
         .enumerate()
         .map(|(i, item)| {
-            let is_current = state.queue.current_queue_index == Some(i);
+            let is_current = queue_state.current_queue_index == Some(i);
             let prefix = if is_current { "▶ " } else { "  " };
             let name = item
                 .metadata
@@ -98,7 +106,7 @@ pub fn draw_queue_panel(f: &mut Frame, area: Rect, state: &AppState) {
             )
             .highlight_symbol(">> ");
 
-        let mut list_state = state.queue.queue_state.clone();
+        let mut list_state = queue_state.queue_state.clone();
         f.render_stateful_widget(list, area, &mut list_state);
     }
 }

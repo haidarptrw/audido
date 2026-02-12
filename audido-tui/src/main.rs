@@ -18,14 +18,15 @@ use audido_core::{
 };
 
 mod router;
-mod state;
-mod ui;
 mod routes;
+mod state;
 mod states;
+mod ui;
 
 use router::{Router, route_for_name, tab_names};
 use state::AppState;
 
+use crate::router::InterceptKeyResult;
 use crate::routes::playback::PlaybackRoute;
 
 fn main() -> anyhow::Result<()> {
@@ -78,11 +79,25 @@ fn run_tui(handle: AudioEngineHandle, initial_files: Vec<String>) -> anyhow::Res
         if event::poll(Duration::from_millis(100))? {
             if let Event::Key(key) = event::read()? {
                 if key.kind == KeyEventKind::Press {
-                    // Handle global keys first
-                    let should_quit =
-                        handle_global_keys(key.code, &mut state, &handle, &mut router)?;
-                    if should_quit {
-                        break;
+                    // check if current route wants to intercept the key
+                    match router
+                        .current_mut()
+                        .intercept_global_key(key.code, &mut state, &handle)
+                    {
+                        InterceptKeyResult::Handled => {
+                            continue;
+                        }
+                        InterceptKeyResult::HandledAndNavigate(action) => {
+                            router.execute_action(action, &mut state, &handle)?;
+                        }
+                        InterceptKeyResult::Ignored => {
+                            // Handle global keys first
+                            let should_quit =
+                                handle_global_keys(key.code, &mut state, &handle, &mut router)?;
+                            if should_quit {
+                                break;
+                            }
+                        }
                     }
                 }
             }

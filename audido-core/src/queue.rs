@@ -5,12 +5,16 @@ use strum::EnumIter;
 use crate::metadata::AudioMetadata;
 
 /// Loop/repeat mode for queue playback
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, EnumIter)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, EnumIter, strum::Display)]
 pub enum LoopMode {
     #[default]
+    #[strum(serialize = "➡️ Off")]
     Off,
+    #[strum(serialize = "🔂 One")]
     RepeatOne,
+    #[strum(serialize = "🔁 All")]
     LoopAll,
+    #[strum(serialize = "🔀 Shuffle")]
     Shuffle,
 }
 

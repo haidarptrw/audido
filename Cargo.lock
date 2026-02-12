@@ -142,7 +142,6 @@ dependencies = [
  "rubato",
  "rustfft",
  "strum",
- "strum_macros",
  "symphonia",
  "thiserror 2.0.18",
  "tokio",
@@ -164,7 +163,6 @@ dependencies = [
  "log",
  "ratatui",
  "strum",
- "strum_macros",
  "tokio",
  "tui-logger",
 ]

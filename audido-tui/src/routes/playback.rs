@@ -1,7 +1,18 @@
 use audido_core::{commands::AudioCommand, engine::AudioEngineHandle};
-use ratatui::{Frame, crossterm::event::KeyCode, layout::{Constraint, Direction, Layout, Rect}, style::{Color, Modifier, Style}, text::{Line, Span}, widgets::{Block, Borders, Gauge, Paragraph}};
+use ratatui::{
+    Frame,
+    crossterm::event::KeyCode,
+    layout::{Constraint, Direction, Layout, Rect},
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
+    widgets::{Block, Borders, Gauge, Paragraph},
+};
 
-use crate::{router::{RouteAction, RouteHandler}, state::AppState};
+use crate::{
+    router::{RouteAction, RouteHandler},
+    state::AppState,
+    states::AudioState,
+};
 
 // ==================================================================
 // Playback Route Implementation
@@ -12,7 +23,7 @@ pub struct PlaybackRoute;
 
 impl RouteHandler for PlaybackRoute {
     fn render(&self, frame: &mut Frame, area: Rect, state: &AppState) {
-        draw_playback_panel(frame, area, state);
+        draw_playback_panel(frame, area, &state.audio);
     }
 
     fn handle_input(
@@ -36,15 +47,11 @@ impl RouteHandler for PlaybackRoute {
             }
             KeyCode::Right => {
                 let new_pos = state.audio.position + 5.0;
-                handle
-                    .cmd_tx
-                    .send(AudioCommand::Seek(new_pos))?;
+                handle.cmd_tx.send(AudioCommand::Seek(new_pos))?;
             }
             KeyCode::Left => {
                 let new_pos = (state.audio.position - 5.0).max(0.0);
-                handle
-                    .cmd_tx
-                    .send(AudioCommand::Seek(new_pos))?;
+                handle.cmd_tx.send(AudioCommand::Seek(new_pos))?;
             }
             KeyCode::Char(' ') => {
                 if state.audio.is_playing {
@@ -77,7 +84,7 @@ impl RouteHandler for PlaybackRoute {
 }
 
 /// Draw the playback panel
-pub fn draw_playback_panel(f: &mut Frame, area: Rect, state: &AppState) {
+pub fn draw_playback_panel(f: &mut Frame, area: Rect, audio_state: &AudioState) {
     // Panel is active when rendered (router-based system)
     let is_active = true;
 
@@ -91,12 +98,12 @@ pub fn draw_playback_panel(f: &mut Frame, area: Rect, state: &AppState) {
         ])
         .split(area);
 
-    draw_now_playing(f, chunks[0], state, is_active);
-    draw_progress(f, chunks[1], state);
+    draw_now_playing(f, chunks[0], audio_state, is_active);
+    draw_progress(f, chunks[1], audio_state);
 }
 
 /// Draw the now playing section
-fn draw_now_playing(f: &mut Frame, area: Rect, state: &AppState, is_active: bool) {
+fn draw_now_playing(f: &mut Frame, area: Rect, audio_state: &AudioState, is_active: bool) {
     let border_style = if is_active {
         Style::default()
             .fg(Color::Cyan)
@@ -113,7 +120,7 @@ fn draw_now_playing(f: &mut Frame, area: Rect, state: &AppState, is_active: bool
     let inner = block.inner(area);
     f.render_widget(block, area);
 
-    if let Some(ref metadata) = state.audio.metadata {
+    if let Some(ref metadata) = audio_state.metadata {
         let title = metadata.title.as_deref().unwrap_or("Unknown Title");
         let artist = metadata.author.as_deref().unwrap_or("Unknown Artist");
         let album = metadata.album.as_deref().unwrap_or("Unknown Album");
@@ -139,10 +146,10 @@ fn draw_now_playing(f: &mut Frame, area: Rect, state: &AppState, is_active: bool
 }
 
 /// Draw the progress bar
-fn draw_progress(f: &mut Frame, area: Rect, state: &AppState) {
-    let progress_pct = (state.progress() * 100.0) as u16;
-    let position_str = AppState::format_time(state.audio.position);
-    let duration_str = AppState::format_time(state.audio.duration);
+fn draw_progress(f: &mut Frame, area: Rect, audio_state: &AudioState) {
+    let progress_pct = (audio_state.progress() * 100.0) as u16;
+    let position_str = AudioState::format_time(audio_state.position);
+    let duration_str = AudioState::format_time(audio_state.duration);
 
     let label = format!("{} / {}", position_str, duration_str);
 

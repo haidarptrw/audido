@@ -1,16 +1,25 @@
 use audido_core::engine::AudioEngineHandle;
-use ratatui::{Frame, crossterm::event::KeyCode, layout::Rect, style::{Color, Modifier, Style}, widgets::{Block, Borders}};
+use ratatui::{
+    Frame,
+    crossterm::event::KeyCode,
+    layout::Rect,
+    style::{Color, Modifier, Style},
+    widgets::{Block, Borders},
+};
 use tui_logger::TuiLoggerWidget;
 
-use crate::{router::{RouteAction, RouteHandler}, state::AppState};
+use crate::{
+    router::{RouteAction, RouteHandler},
+    state::AppState,
+};
 
 /// Log route
 #[derive(Debug, Clone)]
 pub struct LogRoute;
 
 impl RouteHandler for LogRoute {
-    fn render(&self, frame: &mut Frame, area: Rect, state: &AppState) {
-        draw_log_panel(frame, area, state);
+    fn render(&self, frame: &mut Frame, area: Rect, _state: &AppState) {
+        draw_log_panel(frame, area);
     }
 
     fn handle_input(
@@ -37,7 +46,7 @@ impl RouteHandler for LogRoute {
 }
 
 /// Draw the log panel
-fn draw_log_panel(f: &mut Frame, area: Rect, _state: &AppState) {
+fn draw_log_panel(f: &mut Frame, area: Rect) {
     // Panel is active when rendered (router-based system)
     let is_active = true;
 
@@ -60,4 +69,3 @@ fn draw_log_panel(f: &mut Frame, area: Rect, _state: &AppState) {
 
     f.render_widget(log_widget, area);
 }
-

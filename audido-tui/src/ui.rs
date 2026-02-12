@@ -1,13 +1,13 @@
-use audido_core::queue::LoopMode;
 use ratatui::{
     Frame,
-    layout::{ Alignment, Constraint, Direction, Layout, Rect },
-    style::{ Color, Modifier, Style },
-    text::{ Line, Span },
-    widgets::{ Block, Borders, Clear, Paragraph },
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
+    widgets::{Block, Borders, Clear, Paragraph},
 };
 
 use crate::state::AppState;
+use crate::states::{AudioState, QueueState};
 
 /// Draw the TUI interface
 pub fn draw(f: &mut Frame, state: &AppState, router: &crate::router::Router) {
@@ -17,7 +17,7 @@ pub fn draw(f: &mut Frame, state: &AppState, router: &crate::router::Router) {
         .margin(1)
         .constraints([
             Constraint::Length(15), // Sidebar navigation
-            Constraint::Min(40), // Main content area
+            Constraint::Min(40),    // Main content area
         ])
         .split(f.area());
 
@@ -37,14 +37,15 @@ fn draw_sidebar(f: &mut Frame, area: Rect, _state: &AppState, router: &crate::ro
 
     // Navigation items - generated from router tab names
     let current_route_name = router.current().name();
-    let nav_text: Vec<Line> = crate::router
-        ::tab_names()
+    let nav_text: Vec<Line> = crate::router::tab_names()
         .iter()
         .map(|tab_name| {
             let is_active = *tab_name == current_route_name;
             let prefix = if is_active { "▶ " } else { "  " };
             let style = if is_active {
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(Color::Gray)
             };
@@ -63,7 +64,7 @@ fn draw_main_content(f: &mut Frame, area: Rect, state: &AppState, router: &crate
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Min(0), // Panel specific content
+            Constraint::Min(0),    // Panel specific content
             Constraint::Length(3), // Controls info
             Constraint::Length(3), // Status bar
         ])
@@ -78,7 +79,7 @@ fn draw_main_content(f: &mut Frame, area: Rect, state: &AppState, router: &crate
 
     // Draw global footers on every tab
     draw_controls(f, controls_area, state, router);
-    draw_status(f, status_area, state);
+    draw_status(f, status_area, &state.audio, &state.queue);
 }
 
 /// Draw the controls help section
@@ -98,7 +99,7 @@ fn draw_controls(f: &mut Frame, area: Rect, _state: &AppState, router: &crate::r
                 Span::styled("[Tab]", Style::default().fg(Color::Magenta)),
                 Span::raw(" Switch Tab  "),
                 Span::styled("[Q]", Style::default().fg(Color::Red)),
-                Span::raw(" Quit")
+                Span::raw(" Quit"),
             ]
         }
         "Queue" => {
@@ -114,7 +115,7 @@ fn draw_controls(f: &mut Frame, area: Rect, _state: &AppState, router: &crate::r
                 Span::styled("[Tab]", Style::default().fg(Color::Magenta)),
                 Span::raw(" Switch Tab  "),
                 Span::styled("[Q]", Style::default().fg(Color::Red)),
-                Span::raw(" Quit")
+                Span::raw(" Quit"),
             ]
         }
         "Log" => {
@@ -124,7 +125,7 @@ fn draw_controls(f: &mut Frame, area: Rect, _state: &AppState, router: &crate::r
                 Span::styled("[Tab]", Style::default().fg(Color::Magenta)),
                 Span::raw(" Switch Tab  "),
                 Span::styled("[Q]", Style::default().fg(Color::Red)),
-                Span::raw(" Quit")
+                Span::raw(" Quit"),
             ]
         }
         "Browser" | "File Options" => {
@@ -136,7 +137,7 @@ fn draw_controls(f: &mut Frame, area: Rect, _state: &AppState, router: &crate::r
                 Span::styled("[Tab]", Style::default().fg(Color::Magenta)),
                 Span::raw(" Switch Tab  "),
                 Span::styled("[Q]", Style::default().fg(Color::Red)),
-                Span::raw(" Quit")
+                Span::raw(" Quit"),
             ]
         }
         "Settings" => {
@@ -148,7 +149,7 @@ fn draw_controls(f: &mut Frame, area: Rect, _state: &AppState, router: &crate::r
                 Span::styled("[Tab]", Style::default().fg(Color::Magenta)),
                 Span::raw(" Switch Tab  "),
                 Span::styled("[Q]", Style::default().fg(Color::Red)),
-                Span::raw(" Quit")
+                Span::raw(" Quit"),
             ]
         }
         "Equalizer" => {
@@ -164,7 +165,7 @@ fn draw_controls(f: &mut Frame, area: Rect, _state: &AppState, router: &crate::r
                 Span::styled("[Esc]", Style::default().fg(Color::Yellow)),
                 Span::raw(" Back  "),
                 Span::styled("[Q]", Style::default().fg(Color::Red)),
-                Span::raw(" Quit")
+                Span::raw(" Quit"),
             ]
         }
         _ => {
@@ -172,43 +173,34 @@ fn draw_controls(f: &mut Frame, area: Rect, _state: &AppState, router: &crate::r
                 Span::styled("[Tab]", Style::default().fg(Color::Magenta)),
                 Span::raw(" Switch Tab  "),
                 Span::styled("[Q]", Style::default().fg(Color::Red)),
-                Span::raw(" Quit")
+                Span::raw(" Quit"),
             ]
         }
     };
 
-    let paragraph = Paragraph::new(Line::from(controls)).block(
-        Block::default().borders(Borders::ALL).title(" Controls ")
-    );
+    let paragraph = Paragraph::new(Line::from(controls))
+        .block(Block::default().borders(Borders::ALL).title(" Controls "));
 
     f.render_widget(paragraph, area);
 }
 
 /// Draw the status section
-fn draw_status(f: &mut Frame, area: Rect, state: &AppState) {
-    let status_style = if state.audio.error_message.is_some() {
+fn draw_status(f: &mut Frame, area: Rect, audio: &AudioState, queue: &QueueState) {
+    let status_style = if audio.error_message.is_some() {
         Style::default().fg(Color::Red)
-    } else if state.audio.is_playing {
+    } else if audio.is_playing {
         Style::default().fg(Color::Green)
     } else {
         Style::default().fg(Color::Yellow)
     };
 
-    let loop_icon = match state.queue.loop_mode {
-        LoopMode::Off => "➡️ Off",
-        LoopMode::RepeatOne => "🔂 One",
-        LoopMode::LoopAll => "🔁 All",
-        LoopMode::Shuffle => "🔀 Shuffle",
-    };
+    let loop_icon = queue.loop_mode.to_string();
 
-    let volume_bar = format!("Vol: {:3.0}%", state.audio.volume * 100.0);
-    let queue_info = format!("Queue: {}", state.queue.queue.len());
+    let volume_bar = format!("Vol: {:3.0}%", audio.volume * 100.0);
+    let queue_info = format!("Queue: {}", queue.queue.len());
     let status_text = format!(
         "{}  |  {}  |  {}  |  {}",
-        state.audio.status_message,
-        volume_bar,
-        queue_info,
-        loop_icon
+        audio.status_message, volume_bar, queue_info, loop_icon
     );
 
     let paragraph = Paragraph::new(status_text)
@@ -251,14 +243,17 @@ pub fn draw_generic_dialog(f: &mut Frame, area: Rect, props: DialogProperties) {
 
     // Render the Options
     // We map the raw strings into styled Lines based on the selected_index
-    let text: Vec<Line> = props.options
+    let text: Vec<Line> = props
+        .options
         .iter()
         .enumerate()
         .map(|(i, label)| {
             let is_selected = i == props.selected_index;
 
             let style = if is_selected {
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(Color::Gray)
             };
@@ -271,4 +266,25 @@ pub fn draw_generic_dialog(f: &mut Frame, area: Rect, props: DialogProperties) {
 
     let paragraph = Paragraph::new(text);
     f.render_widget(paragraph, inner_area);
+}
+
+/// Open a modal with custom content
+pub fn open_modal<T>(
+    f: &mut Frame,
+    area: Rect,
+    state: T,
+    content: impl FnOnce(&mut Frame, Rect, T),
+) {
+    // We create a centered area for the modal
+    let width = area.width.saturating_sub(20).min(60);
+    let height = area.height.saturating_sub(10).min(20);
+    let x = area.x + (area.width - width) / 2;
+    let y = area.y + (area.height - height) / 2;
+    let modal_area = Rect::new(x, y, width, height);
+
+    // Clear the background behind the modal
+    f.render_widget(Clear, modal_area);
+
+    // Render the provided content in the modal area
+    content(f, modal_area, state);
 }

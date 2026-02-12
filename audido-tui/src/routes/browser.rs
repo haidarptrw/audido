@@ -1,18 +1,19 @@
 use audido_core::engine::AudioEngineHandle;
 use ratatui::{
+    Frame,
     crossterm::event::KeyCode,
     layout::Rect,
-    style::{ Color, Modifier, Style },
-    text::{ Line, Span },
-    widgets::{ Block, Borders, List, ListItem },
-    Frame,
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
+    widgets::{Block, Borders, List, ListItem},
 };
 
 use crate::{
-    router::{ RouteAction, RouteHandler },
+    router::{RouteAction, RouteHandler},
     routes::playback::PlaybackRoute,
     state::AppState,
-    states::BrowserFileDialog, ui::{DialogProperties, draw_generic_dialog},
+    states::{BrowserFileDialog, BrowserState},
+    ui::{DialogProperties, draw_generic_dialog},
 };
 
 /// Browser route - handles both browsing and file dialog as internal state
@@ -21,7 +22,7 @@ pub struct BrowserRoute;
 
 impl RouteHandler for BrowserRoute {
     fn render(&self, frame: &mut Frame, area: Rect, state: &AppState) {
-        draw_browser_panel(frame, area, state);
+        draw_browser_panel(frame, area, &state.browser);
 
         if let BrowserFileDialog::Open { path, selected } = &state.browser.dialog {
             let filename = path
@@ -45,7 +46,7 @@ impl RouteHandler for BrowserRoute {
         &mut self,
         key: KeyCode,
         state: &mut AppState,
-        handle: &AudioEngineHandle
+        handle: &AudioEngineHandle,
     ) -> anyhow::Result<RouteAction> {
         // Check if dialog is open - handle dialog input
         if state.browser.is_dialog_open() {
@@ -59,21 +60,27 @@ impl RouteHandler for BrowserRoute {
 
                         if *selected == 0 {
                             // Play Now
-                            handle.cmd_tx.send(audido_core::commands::AudioCommand::ClearQueue)?;
-                            handle.cmd_tx.send(
-                                audido_core::commands::AudioCommand::AddToQueue(vec![path_str])
-                            )?;
-                            handle.cmd_tx.send(
-                                audido_core::commands::AudioCommand::PlayQueueIndex(0)
-                            )?;
+                            handle
+                                .cmd_tx
+                                .send(audido_core::commands::AudioCommand::ClearQueue)?;
+                            handle
+                                .cmd_tx
+                                .send(audido_core::commands::AudioCommand::AddToQueue(vec![
+                                    path_str,
+                                ]))?;
+                            handle
+                                .cmd_tx
+                                .send(audido_core::commands::AudioCommand::PlayQueueIndex(0))?;
                             state.browser.close_dialog();
                             // Navigate to playback
                             return Ok(RouteAction::Replace(Box::new(PlaybackRoute)));
                         } else {
                             // Add to Queue
-                            handle.cmd_tx.send(
-                                audido_core::commands::AudioCommand::AddToQueue(vec![path_str])
-                            )?;
+                            handle
+                                .cmd_tx
+                                .send(audido_core::commands::AudioCommand::AddToQueue(vec![
+                                    path_str,
+                                ]))?;
                             state.browser.close_dialog();
                         }
                     }
@@ -105,46 +112,55 @@ impl RouteHandler for BrowserRoute {
     }
 }
 
-pub fn draw_browser_panel(f: &mut Frame, area: Rect, state: &AppState) {
+pub fn draw_browser_panel(f: &mut Frame, area: Rect, browser_state: &BrowserState) {
     // Panel is active when rendered (router-based system)
     let is_active = true;
 
     // Title shows current path
-    let title = if state.browser.current_dir.as_os_str().is_empty() {
+    let title = if browser_state.current_dir.as_os_str().is_empty() {
         " Browser: System Drives ".to_string()
     } else {
-        format!(" Browser: {} ", state.browser.current_dir.to_string_lossy())
+        format!(" Browser: {} ", browser_state.current_dir.to_string_lossy())
     };
 
     let block = Block::default()
         .title(title)
         .borders(Borders::ALL)
-        .border_style(if is_active { Style::default().fg(Color::Cyan) } else { Style::default() });
+        .border_style(if is_active {
+            Style::default().fg(Color::Cyan)
+        } else {
+            Style::default()
+        });
 
-    let items: Vec<ListItem> = state.browser.items
+    let items: Vec<ListItem> = browser_state
+        .items
         .iter()
         .map(|item| {
             let icon = if item.is_dir { "📁" } else { "🎵" };
-            let color = if item.is_dir { Color::Blue } else { Color::White };
+            let color = if item.is_dir {
+                Color::Blue
+            } else {
+                Color::White
+            };
 
-            ListItem::new(
-                Line::from(
-                    vec![
-                        Span::styled(format!("{} ", icon), Style::default().fg(color)),
-                        Span::raw(&item.name)
-                    ]
-                )
-            )
+            ListItem::new(Line::from(vec![
+                Span::styled(format!("{} ", icon), Style::default().fg(color)),
+                Span::raw(&item.name),
+            ]))
         })
         .collect();
 
     let list = List::new(items)
         .block(block)
-        .highlight_style(Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD))
+        .highlight_style(
+            Style::default()
+                .bg(Color::DarkGray)
+                .add_modifier(Modifier::BOLD),
+        )
         .highlight_symbol(">> ");
 
     // We must clone the state to pass mutable reference to render_stateful_widget
     // But since we can't mutate state here, we pass a clone. Ratatui uses this for offset calculation.
-    let mut list_state = state.browser.list_state.clone();
+    let mut list_state = browser_state.list_state.clone();
     f.render_stateful_widget(list, area, &mut list_state);
 }

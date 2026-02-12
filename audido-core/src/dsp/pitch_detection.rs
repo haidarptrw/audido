@@ -1,5 +1,5 @@
-use crate::metadata::{ ChannelLayout, MusicalSongKey };
-use rustfft::{ FftPlanner, num_complex::Complex };
+use crate::metadata::{ChannelLayout, MusicalSongKey};
+use rustfft::{FftPlanner, num_complex::Complex};
 use thiserror::Error;
 
 // TODO: Move this to configurable file for better UX
@@ -17,7 +17,8 @@ const MINOR_PROFILE: [f32; 12] = [
 
 #[derive(Error, Debug)]
 pub enum KeyDetectionError {
-    #[error("error when doing the DSP: {0}")] DSPError(String),
+    #[error("error when doing the DSP: {0}")]
+    DSPError(String),
     #[error("empty buffer")]
     EmptyBuffer,
     #[error("sample rate must be positive")]
@@ -76,10 +77,13 @@ pub fn detect_song_key(args: SongKeyArgs) -> Result<MusicalSongKey, KeyDetection
         return Err(KeyDetectionError::InvalidSampleRate);
     }
     if let ChannelLayout::Unsupported = args.channel_layout {
-        return Err(KeyDetectionError::DSPError("Unsupported channel layout".to_string()));
+        return Err(KeyDetectionError::DSPError(
+            "Unsupported channel layout".to_string(),
+        ));
     }
     // let mut detector = McLeodDetector::new(WINDOW_SIZE, PADDING_SIZE);
 
+    // FIXME: Incorrect implementation of key detection. need more research
     let chromagram = compute_chromagram(args.buffer, args.sample_rate, args.channel_layout)?;
     // let pitch;
     let key = estimate_key(&chromagram);
@@ -89,13 +93,15 @@ pub fn detect_song_key(args: SongKeyArgs) -> Result<MusicalSongKey, KeyDetection
 fn compute_chromagram(
     buffer: &[f32],
     sample_rate: f32,
-    channel_layout: ChannelLayout
+    channel_layout: ChannelLayout,
 ) -> Result<[f32; 12], KeyDetectionError> {
     let num_channels = match channel_layout {
         ChannelLayout::Mono => 1,
         ChannelLayout::Stereo => 2,
         ChannelLayout::Unsupported => {
-            return Err(KeyDetectionError::DSPError("Unsupported channel layout".to_string()));
+            return Err(KeyDetectionError::DSPError(
+                "Unsupported channel layout".to_string(),
+            ));
         }
     };
     // Validate buffer length is compatible with channel layout
@@ -111,7 +117,9 @@ fn compute_chromagram(
     };
 
     if num_frames == 0 {
-        return Err(KeyDetectionError::DSPError("Buffer too short for analysis".to_string()));
+        return Err(KeyDetectionError::DSPError(
+            "Buffer too short for analysis".to_string(),
+        ));
     }
 
     let mut fft_planner = FftPlanner::new();
@@ -158,7 +166,7 @@ fn compute_chromagram(
         }
     }
 
-        // Normalize chromagram
+    // Normalize chromagram
     let max_val = chroma_bins.iter().fold(0.0f32, |a, &b| a.max(b));
     if max_val > 0.0 {
         for val in &mut chroma_bins {
@@ -221,17 +229,15 @@ fn estimate_key(chromagram: &[f32; 12]) -> MusicalSongKey {
 }
 
 // ==================================
-// Helper functions 
+// Helper functions
 // ==================================
 
 #[inline(always)]
 fn hann_window(window_size: usize) -> Vec<f32> {
     (0..window_size)
-        .map(
-            |i|
-                0.5 *
-                (1.0 - ((2.0 * std::f32::consts::PI * (i as f32)) / (window_size as f32)).cos())
-        )
+        .map(|i| {
+            0.5 * (1.0 - ((2.0 * std::f32::consts::PI * (i as f32)) / (window_size as f32)).cos())
+        })
         .collect()
 }
 

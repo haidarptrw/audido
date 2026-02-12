@@ -105,4 +105,3 @@ impl BrowserState {
         !matches!(self.dialog, BrowserFileDialog::None)
     }
 }
-

@@ -1,4 +1,5 @@
 use audido_core::dsp::eq::{EqPreset, FilterNode};
+use strum::VariantArray;
 
 #[derive(PartialEq, Clone, Copy, Debug)]
 pub enum EqMode {
@@ -23,11 +24,49 @@ pub struct EqState {
     /// Index of the selected filter node
     pub eq_selected_band: usize,
     pub eq_selected_param: usize,
+    pub eq_dialog_state: EqDialogState,
+    pub eq_filter_band_config_opened: Option<usize>,
     // Local copy of filters for immediate UI feedback before sending to Engine
     pub local_filters: Vec<FilterNode>,
     pub local_preset: EqPreset,
     pub local_master_gain: f32,
     pub local_num_channels: u16,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, VariantArray)]
+pub enum EqDialogOption {
+    EditBand,
+    ResetBand,
+}
+
+impl EqDialogOption {
+    /// Cycle to the next option
+    pub fn next(&self) -> Self {
+        let index = self.index();
+        let next_index = (index + 1) % Self::VARIANTS.len();
+        Self::VARIANTS[next_index]
+    }
+
+    /// Cycle to the previous option
+    pub fn prev(&self) -> Self {
+        let index = self.index();
+        // Adding len() before the modulo handles the wrap-around for index 0
+        let prev_index = (index + Self::VARIANTS.len() - 1) % Self::VARIANTS.len();
+        Self::VARIANTS[prev_index]
+    }
+
+    pub fn index(self) -> usize {
+        self as usize
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum EqDialogState {
+    None,
+    EqBandSelect {
+        selected_band: usize,
+        selected_dialog_option: EqDialogOption,
+    },
 }
 
 impl EqState {
@@ -39,6 +78,9 @@ impl EqState {
             eq_focus: EqFocus::CurvePanel,
             eq_selected_band: 0,
             eq_selected_param: 0,
+            eq_dialog_state: EqDialogState::None,
+            eq_filter_band_config_opened: None,
+
             local_filters: EqPreset::default().set_filters(),
             local_preset: EqPreset::default(),
             local_master_gain: 0.0,
@@ -65,6 +107,34 @@ impl EqState {
             EqFocus::CurvePanel => EqFocus::BandPanel,
             EqFocus::BandPanel => EqFocus::CurvePanel,
         };
+    }
+
+    pub fn next(&mut self) {
+        match &mut self.eq_dialog_state {
+            EqDialogState::None => {
+                self.next_band();
+            }
+            EqDialogState::EqBandSelect {
+                selected_dialog_option: selection_dialog_option,
+                ..
+            } => {
+                *selection_dialog_option = selection_dialog_option.next();
+            }
+        }
+    }
+
+    pub fn prev(&mut self) {
+        match &mut self.eq_dialog_state {
+            EqDialogState::None => {
+                self.prev_band();
+            }
+            EqDialogState::EqBandSelect {
+                selected_dialog_option: selection_dialog_option,
+                ..
+            } => {
+                *selection_dialog_option = selection_dialog_option.prev();
+            }
+        }
     }
 
     /// Select next band in the filter list
@@ -94,5 +164,24 @@ impl EqState {
     pub fn close_panel(&mut self) {
         self.show_eq = false;
     }
-}
 
+    pub fn open_filter_band_dialog(&mut self) {
+        self.eq_dialog_state = EqDialogState::EqBandSelect {
+            selected_band: self.eq_selected_band,
+            selected_dialog_option: EqDialogOption::EditBand,
+        };
+    }
+
+    pub fn close_filter_band_dialog(&mut self) {
+        self.eq_dialog_state = EqDialogState::None;
+    }
+
+    /// Open filter band configuration modal
+    pub fn open_filter_band_config(&mut self, band_index: usize) {
+        self.eq_filter_band_config_opened = Some(band_index);
+    }
+
+    pub fn close_filter_band_config(&mut self) {
+        self.eq_filter_band_config_opened = None;
+    }
+}

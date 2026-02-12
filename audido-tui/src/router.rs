@@ -1,8 +1,14 @@
 use anyhow::Result;
 use ratatui::{Frame, layout::Rect};
 
-use crate::{routes::{browser::BrowserRoute, log::LogRoute, playback::PlaybackRoute, queue::QueueRoute, settings::SettingsRoute}, state::AppState};
-use audido_core::{engine::AudioEngineHandle};
+use crate::{
+    routes::{
+        browser::BrowserRoute, log::LogRoute, playback::PlaybackRoute, queue::QueueRoute,
+        settings::SettingsRoute,
+    },
+    state::AppState,
+};
+use audido_core::engine::AudioEngineHandle;
 use ratatui::crossterm::event::KeyCode;
 
 /// Trait that all routes must implement
@@ -40,29 +46,48 @@ pub trait RouteHandler: std::fmt::Debug {
 
     #[allow(dead_code)]
     fn help_items(&self, _state: &AppState) -> Vec<(&str, &str)> {
-        vec![
-            ("Tab", "Switch Tab"),
-            ("Q", "Quit"),
-        ]
+        vec![("Tab", "Switch Tab"), ("Q", "Quit")]
+    }
+
+    fn intercept_global_key(
+        &mut self,
+        #[allow(unused_variables)]
+        key: KeyCode,
+        #[allow(unused_variables)]
+        state: &mut AppState,
+        #[allow(unused_variables)]
+        handle: &AudioEngineHandle,
+    ) -> InterceptKeyResult {
+        InterceptKeyResult::Ignored
     }
 }
 
 /// Actions that can be returned from route handlers
 #[derive(Debug)]
-#[allow(dead_code)]
 pub enum RouteAction {
     /// Do nothing, stay on current route
     None,
     /// Go back to previous route
+    #[allow(dead_code)]
     Pop,
     /// Navigate to a new route
     Push(Box<dyn RouteHandler>),
     /// Replace current route with a new one
     Replace(Box<dyn RouteHandler>),
     /// Clear stack and navigate to route
+    #[allow(dead_code)]
     Reset(Box<dyn RouteHandler>),
     /// Quit the application
+    #[allow(dead_code)]
     Quit,
+}
+
+#[derive(Debug)]
+pub enum InterceptKeyResult {
+    Handled,
+    Ignored,
+    #[allow(dead_code)]
+    HandledAndNavigate(RouteAction),
 }
 
 /// Router manages the navigation stack

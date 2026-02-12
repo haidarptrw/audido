@@ -20,5 +20,4 @@ youtube_dl = "0.10.0"
 lofty = "0.22.4"
 rand = "0.9"
 strum = { version = "0.27", features = ["derive"] }
-strum_macros = "0.27"
 pitch-detection = "0.3.0"

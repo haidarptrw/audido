@@ -8,7 +8,7 @@ use strum::EnumIter;
 pub const MAX_EQ_FILTERS: usize = 8;
 
 /// Filter type: Use Direct Form II Biquad Filter
-#[derive(Default, Debug, Clone, Copy, PartialEq, EnumIter, strum_macros::Display)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, EnumIter, strum::Display)]
 pub enum FilterType {
     #[default]
     Peaking,

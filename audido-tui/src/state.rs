@@ -1,10 +1,7 @@
 use audido_core::{commands::AudioResponse, queue::LoopMode};
 use strum::IntoEnumIterator;
 
-use crate::states::{
-    AudioState, BrowserState, EqState, QueueState,
-    SettingsState,
-};
+use crate::states::{AudioState, BrowserState, EqState, QueueState, SettingsState};
 
 /// Application state for the TUI
 pub struct AppState {
@@ -86,22 +83,6 @@ impl AppState {
                     format!("Track {}/{}", index + 1, self.queue.queue.len());
             }
         }
-    }
-
-    /// Get the progress percentage (0.0 to 1.0)
-    pub fn progress(&self) -> f32 {
-        if self.audio.duration > 0.0 {
-            (self.audio.position / self.audio.duration).clamp(0.0, 1.0)
-        } else {
-            0.0
-        }
-    }
-
-    /// Format time as MM:SS
-    pub fn format_time(seconds: f32) -> String {
-        let mins = (seconds / 60.0).floor() as u32;
-        let secs = (seconds % 60.0).floor() as u32;
-        format!("{:02}:{:02}", mins, secs)
     }
 
     // ==============================================
