@@ -59,7 +59,7 @@ impl AudioEngine {
             .open_stream()
             .context("Cannot create stream output")?;
 
-        let sink = Sink::connect_new(&stream.mixer());
+        let sink = Sink::connect_new(stream.mixer());
 
         // Create crossbeam channels
         let (cmd_tx, cmd_rx) = unbounded::<AudioCommand>();
@@ -184,15 +184,16 @@ impl AudioEngine {
             }
 
             // Send position updates if playing
-            if !self.sink.is_paused() && !self.sink.empty() {
-                if let Some(ref audio_data) = self.current_audio {
-                    let tracker = audio_data.position_tracker();
-                    let current = tracker.position_seconds();
-                    let total = tracker.duration_seconds();
-                    let _ = self
-                        .resp_tx
-                        .send(AudioResponse::Position { current, total });
-                }
+            if !self.sink.is_paused()
+                && !self.sink.empty()
+                && let Some(ref audio_data) = self.current_audio
+            {
+                let tracker = audio_data.position_tracker();
+                let current = tracker.position_seconds();
+                let total = tracker.duration_seconds();
+                let _ = self
+                    .resp_tx
+                    .send(AudioResponse::Position { current, total });
             }
         }
 

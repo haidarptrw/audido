@@ -31,15 +31,6 @@ use crate::router::InterceptKeyResult;
 use crate::routes::playback::PlaybackRoute;
 
 fn main() -> anyhow::Result<()> {
-    // Initialize tui_logger for TUI log display
-    // #[cfg(debug_assertions)]
-    // let filter_level = log::LevelFilter::Debug;
-    // #[cfg(not(debug_assertions))]
-    // let filter_level = log::LevelFilter::Info;
-
-    // tui_logger::init_logger(filter_level).expect("Failed to init tui_logger");
-    // tui_logger::set_default_level(filter_level);
-
     logger::setup_logging()?;
 
     log::info!("Starting Audido TUI");
@@ -53,44 +44,9 @@ fn main() -> anyhow::Result<()> {
     // Spawn audio engine on dedicated thread
     let _engine_thread = engine.spawn();
 
-    // Run TUI
-    let result = run_tui(handle, args);
-
     // Ensure clean shutdown
-    result
+    run_tui(handle, args)
 }
-
-// fn setup_logging() -> Result<(), anyhow::Error> {
-//     fern::Dispatch::new()
-//         .format(|out, message, record| {
-//             out.finish(format_args!(
-//                 "{}[{}][{}] {}",
-//                 chrono::Local::now().format("[%Y-%m-%d][%H:%M:%S]"),
-//                 record.target(),
-//                 record.level(),
-//                 message
-//             ))
-//         })
-//         .level(log::LevelFilter::Debug)
-//         // CHAIN 1: Output to 'audido.log' file
-//         .chain(fern::log_file("audido.log")?)
-//         // CHAIN 2: Output to TuiLogger (for the widget)
-//         // We wrap the TuiLogger struct so Fern can send logs to it.
-//         .chain(
-//             fern::Output::call(|record| {
-//                 // Manually push to tui_logger
-//                 // This requires tui_logger::TuiLogger to be accessible.
-//                 // Since tui_logger 0.10+, it implements log::Log.
-//                 static TUI_LOGGER: tui_logger::logger::inner::TuiLogger = tui_logger::logger::inner::TuiLogger;
-//                 use log::Log;
-//                 TUI_LOGGER.log(record);
-//             })
-//         )
-//         .apply()?;
-
-//     Ok(())
-
-// }
 
 fn run_tui(handle: AudioEngineHandle, initial_files: Vec<String>) -> anyhow::Result<()> {
     // Setup terminal
@@ -116,28 +72,27 @@ fn run_tui(handle: AudioEngineHandle, initial_files: Vec<String>) -> anyhow::Res
         terminal.draw(|f| ui::draw(f, &state, &router))?;
 
         // Handle input
-        if event::poll(Duration::from_millis(100))? {
-            if let Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press {
-                    // check if current route wants to intercept the key
-                    match router
-                        .current_mut()
-                        .intercept_global_key(key.code, &mut state, &handle)
-                    {
-                        InterceptKeyResult::Handled => {
-                            continue;
-                        }
-                        InterceptKeyResult::HandledAndNavigate(action) => {
-                            router.execute_action(action, &mut state, &handle)?;
-                        }
-                        InterceptKeyResult::Ignored => {
-                            // Handle global keys first
-                            let should_quit =
-                                handle_global_keys(key.code, &mut state, &handle, &mut router)?;
-                            if should_quit {
-                                break;
-                            }
-                        }
+        if event::poll(Duration::from_millis(100))?
+            && let Event::Key(key) = event::read()?
+            && key.kind == KeyEventKind::Press
+        {
+            // check if current route wants to intercept the key
+            match router
+                .current_mut()
+                .intercept_global_key(key.code, &mut state, &handle)
+            {
+                InterceptKeyResult::Handled => {
+                    continue;
+                }
+                InterceptKeyResult::HandledAndNavigate(action) => {
+                    router.execute_action(action, &mut state, &handle)?;
+                }
+                InterceptKeyResult::Ignored => {
+                    // Handle global keys first
+                    let should_quit =
+                        handle_global_keys(key.code, &mut state, &handle, &mut router)?;
+                    if should_quit {
+                        break;
                     }
                 }
             }
@@ -171,21 +126,19 @@ fn setup_initial_state(
             } else {
                 abs_path.parent().map(|p| p.to_path_buf())
             }
+        } else if path.is_dir() {
+            Some(path)
         } else {
-            if path.is_dir() {
-                Some(path)
-            } else {
-                path.parent().map(|p| p.to_path_buf())
-            }
+            path.parent().map(|p| p.to_path_buf())
         };
 
-        if let Some(dir) = target_dir {
-            if let Ok(items) = browser::get_directory_content(&dir) {
-                state.browser.current_dir = dir;
-                state.browser.items = items;
-                state.browser.list_state.select(Some(0));
-                log::info!("Browser context set to: {:?}", state.browser.current_dir);
-            }
+        if let Some(dir) = target_dir
+            && let Ok(items) = browser::get_directory_content(&dir)
+        {
+            state.browser.current_dir = dir;
+            state.browser.items = items;
+            state.browser.list_state.select(Some(0));
+            log::info!("Browser context set to: {:?}", state.browser.current_dir);
         }
     }
 

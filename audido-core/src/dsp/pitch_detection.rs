@@ -105,7 +105,7 @@ fn compute_chromagram(
         }
     };
     // Validate buffer length is compatible with channel layout
-    if buffer.len() % num_channels != 0 {
+    if !buffer.len().is_multiple_of(num_channels) {
         return Err(KeyDetectionError::InvalidBufferLength);
     }
 
@@ -152,8 +152,13 @@ fn compute_chromagram(
         fft.process(&mut frame_buffer);
 
         // Map fft bins to chroma bins
-        for bin in 1..(WINDOW_SIZE / 2) {
-            let magnitude = frame_buffer[bin].norm();
+        for (bin, item) in frame_buffer
+            .iter()
+            .enumerate()
+            .take(WINDOW_SIZE / 2)
+            .skip(1)
+        {
+            let magnitude = item.norm();
             let freq = bin as f32 * sample_rate / WINDOW_SIZE as f32;
 
             // Convert frequency to MIDI note number, then to pitch class
@@ -178,7 +183,7 @@ fn compute_chromagram(
 }
 
 fn estimate_key(chromagram: &[f32; 12]) -> MusicalSongKey {
-    let mut best_correlation = std::f32::MIN;
+    let mut best_correlation = f32::MIN;
     let mut best_key = MusicalSongKey::CMaj; // Default
 
     for semitone in 0..12 {

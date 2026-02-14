@@ -162,10 +162,10 @@ impl Router {
     ) -> Result<Option<Box<dyn RouteHandler>>> {
         // Keep at least one route in the stack
         if self.stack.len() > 1 {
-            if let Some(current) = self.stack.last() {
-                if !current.can_exit(state) {
-                    return Ok(None);
-                }
+            if let Some(current) = self.stack.last()
+                && !current.can_exit(state)
+            {
+                return Ok(None);
             }
 
             if let Some(mut route) = self.stack.pop() {

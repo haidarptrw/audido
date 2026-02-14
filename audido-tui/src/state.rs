@@ -142,6 +142,6 @@ impl AppState {
             }
         }
         // Return the next mode in the sequence, or the first if at the end
-        modes.next().unwrap_or_else(|| LoopMode::Off)
+        modes.next().unwrap_or(LoopMode::Off)
     }
 }

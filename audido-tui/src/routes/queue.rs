@@ -106,7 +106,7 @@ pub fn draw_queue_panel(f: &mut Frame, area: Rect, queue_state: &QueueState) {
             )
             .highlight_symbol(">> ");
 
-        let mut list_state = queue_state.queue_state.clone();
+        let mut list_state = queue_state.queue_state;
         f.render_stateful_widget(list, area, &mut list_state);
     }
 }

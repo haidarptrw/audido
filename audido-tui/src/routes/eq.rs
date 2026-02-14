@@ -181,23 +181,23 @@ impl EqualizerRoute {
 
     /// Navigate to the next param in the config modal
     fn next_config_param(&mut self) {
-        if let Some(config) = &mut self.eq_filter_band_config_opened {
-            if !config.option.is_empty() {
-                config.selected_param = (config.selected_param + 1) % config.option.len();
-            }
+        if let Some(config) = &mut self.eq_filter_band_config_opened
+            && !config.option.is_empty()
+        {
+            config.selected_param = (config.selected_param + 1) % config.option.len();
         }
     }
 
     /// Navigate to the previous param in the config modal
     fn prev_config_param(&mut self) {
-        if let Some(config) = &mut self.eq_filter_band_config_opened {
-            if !config.option.is_empty() {
-                config.selected_param = if config.selected_param == 0 {
-                    config.option.len() - 1
-                } else {
-                    config.selected_param - 1
-                };
-            }
+        if let Some(config) = &mut self.eq_filter_band_config_opened
+            && !config.option.is_empty()
+        {
+            config.selected_param = if config.selected_param == 0 {
+                config.option.len() - 1
+            } else {
+                config.selected_param - 1
+            };
         }
     }
 
@@ -516,18 +516,15 @@ impl RouteHandler for EqualizerRoute {
             return InterceptKeyResult::Handled;
         }
 
-        match key {
-            KeyCode::Tab => {
-                let Some(next_tab_name) = get_next_tab("Settings") else {
-                    return InterceptKeyResult::Ignored;
-                };
+        if key == KeyCode::Tab {
+            let Some(next_tab_name) = get_next_tab("Settings") else {
+                return InterceptKeyResult::Ignored;
+            };
 
-                // should clear route and then go to next from setting router
-                return InterceptKeyResult::HandledAndNavigate(RouteAction::Reset(route_for_name(
-                    next_tab_name,
-                )));
-            }
-            _ => {}
+            // should clear route and then go to next from setting router
+            return InterceptKeyResult::HandledAndNavigate(RouteAction::Reset(route_for_name(
+                next_tab_name,
+            )));
         }
         InterceptKeyResult::Ignored
     }

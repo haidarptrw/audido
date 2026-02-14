@@ -77,7 +77,7 @@ impl BrowserState {
                 self.items = new_items;
                 self.list_state.select(Some(0));
             }
-            return None;
+            None
         } else {
             Some(item.path.clone())
         }
