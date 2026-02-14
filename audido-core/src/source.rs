@@ -341,10 +341,8 @@ impl Iterator for BufferedSource {
 
     fn next(&mut self) -> Option<Self::Item> {
         // If we've exhausted the process buffer, refill it
-        if self.process_buffer_idx >= self.process_buffer.len() {
-            if !self.fill_buffer() {
-                return None;
-            }
+        if self.process_buffer_idx >= self.process_buffer.len() && !self.fill_buffer() {
+            return None;
         }
 
         // Return the next sample from our processed buffer

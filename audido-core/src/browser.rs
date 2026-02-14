@@ -22,32 +22,30 @@ pub fn get_directory_content(path: &Path) -> io::Result<Vec<FileEntry>> {
     let mut entries = Vec::new();
 
     if let Ok(read_dir) = fs::read_dir(path) {
-        for entry_result in read_dir {
-            if let Ok(entry) = entry_result {
-                let entry_path = entry.path();
-                let is_dir = entry_path.is_dir();
+        for entry in read_dir.flatten() {
+            let entry_path = entry.path();
+            let is_dir = entry_path.is_dir();
 
-                // Filter: Include directories and supported audio files
-                let should_include = is_dir
-                    || entry_path
-                        .extension()
-                        .and_then(|ext| ext.to_str())
-                        .map(|ext| SUPPORTED_EXTENSIONS.contains(&ext.to_lowercase().as_str()))
-                        .unwrap_or(false);
+            // Filter: Include directories and supported audio files
+            let should_include = is_dir
+                || entry_path
+                    .extension()
+                    .and_then(|ext| ext.to_str())
+                    .map(|ext| SUPPORTED_EXTENSIONS.contains(&ext.to_lowercase().as_str()))
+                    .unwrap_or(false);
 
-                if should_include {
-                    let name = entry_path
-                        .file_name()
-                        .and_then(|n| n.to_str())
-                        .unwrap_or("???")
-                        .to_string();
+            if should_include {
+                let name = entry_path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("???")
+                    .to_string();
 
-                    entries.push(FileEntry {
-                        name,
-                        path: entry_path,
-                        is_dir,
-                    });
-                }
+                entries.push(FileEntry {
+                    name,
+                    path: entry_path,
+                    is_dir,
+                });
             }
         }
     }

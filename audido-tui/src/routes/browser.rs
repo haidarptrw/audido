@@ -161,6 +161,6 @@ pub fn draw_browser_panel(f: &mut Frame, area: Rect, browser_state: &BrowserStat
 
     // We must clone the state to pass mutable reference to render_stateful_widget
     // But since we can't mutate state here, we pass a clone. Ratatui uses this for offset calculation.
-    let mut list_state = browser_state.list_state.clone();
+    let mut list_state = browser_state.list_state;
     f.render_stateful_widget(list, area, &mut list_state);
 }

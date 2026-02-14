@@ -1,7 +1,7 @@
-use std::sync::{Arc, Mutex};
-use std::collections::VecDeque;
-use ratatui::style::{Color, Style};
 use log::{Level, LevelFilter};
+use ratatui::style::{Color, Style};
+use std::collections::VecDeque;
+use std::sync::{Arc, Mutex};
 
 // Define a struct to hold log data
 #[derive(Clone)]
@@ -23,7 +23,7 @@ pub fn setup_logging() -> anyhow::Result<()> {
     fern::Dispatch::new()
         .format(|out, message, record| {
             let timestamp = chrono::Local::now().format("%H:%M:%S").to_string();
-            
+
             // Format for the file
             out.finish(format_args!(
                 "[{}][{}] {}",
@@ -40,7 +40,7 @@ pub fn setup_logging() -> anyhow::Result<()> {
                 message: record.args().to_string(),
                 timestamp: chrono::Local::now().format("%H:%M:%S").to_string(),
             };
-            
+
             if let Ok(mut buffer) = LOG_BUFFER.lock() {
                 if buffer.len() >= 1000 {
                     buffer.pop_front(); // Keep buffer size manageable
