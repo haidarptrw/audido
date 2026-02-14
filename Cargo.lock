@@ -141,6 +141,7 @@ dependencies = [
  "rodio",
  "rubato",
  "rustfft",
+ "strum",
  "symphonia",
  "thiserror 2.0.18",
  "tokio",
@@ -148,17 +149,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "audido-macros"
+version = "0.1.0"
+
+[[package]]
 name = "audido-tui"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "audido-core",
+ "chrono",
  "crossbeam-channel",
  "env_logger",
+ "fern",
+ "lazy_static",
  "log",
  "ratatui",
  "strum",
- "strum_macros",
  "tokio",
  "tui-logger",
 ]
@@ -325,7 +332,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fac4744fb15ae8337dc853fee7fb3f4e48c0fbaa23d0afe49c447b4fab126118"
 dependencies = [
  "iana-time-zone",
+ "js-sys",
  "num-traits",
+ "wasm-bindgen",
  "windows-link",
 ]
 
@@ -683,6 +692,15 @@ checksum = "b95f7c0680e4142284cf8b22c14a476e87d61b004a3a0861872b32ef7ead40a2"
 dependencies = [
  "bit-set",
  "regex",
+]
+
+[[package]]
+name = "fern"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4316185f709b23713e41e3195f90edef7fb00c3ed4adc79769cf09cc762a3b29"
+dependencies = [
+ "log",
 ]
 
 [[package]]

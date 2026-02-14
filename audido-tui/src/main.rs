@@ -1,6 +1,8 @@
-use std::io;
+use std::fs::canonicalize;
 use std::time::Duration;
+use std::{io, path::PathBuf};
 
+use audido_core::browser;
 use ratatui::{
     backend::CrosstermBackend,
     crossterm::{
@@ -15,19 +17,34 @@ use audido_core::{
     engine::{AudioEngine, AudioEngineHandle},
 };
 
+mod logger;
+mod router;
+mod routes;
 mod state;
+mod states;
 mod ui;
 
-use state::{ActiveTab, AppState, BrowserFileDialog};
+use router::{Router, route_for_name, tab_names};
+use state::AppState;
+
+use crate::router::InterceptKeyResult;
+use crate::routes::playback::PlaybackRoute;
 
 fn main() -> anyhow::Result<()> {
     // Initialize tui_logger for TUI log display
-    tui_logger::init_logger(log::LevelFilter::Debug).expect("Failed to init tui_logger");
-    tui_logger::set_default_level(log::LevelFilter::Debug);
+    // #[cfg(debug_assertions)]
+    // let filter_level = log::LevelFilter::Debug;
+    // #[cfg(not(debug_assertions))]
+    // let filter_level = log::LevelFilter::Info;
+
+    // tui_logger::init_logger(filter_level).expect("Failed to init tui_logger");
+    // tui_logger::set_default_level(filter_level);
+
+    logger::setup_logging()?;
 
     log::info!("Starting Audido TUI");
 
-    // Get audio file paths from command line args (supports multiple files)
+    // Get audio file paths from command line args
     let args: Vec<String> = std::env::args().skip(1).collect();
 
     // Create audio engine and get communication handle
@@ -43,6 +60,38 @@ fn main() -> anyhow::Result<()> {
     result
 }
 
+// fn setup_logging() -> Result<(), anyhow::Error> {
+//     fern::Dispatch::new()
+//         .format(|out, message, record| {
+//             out.finish(format_args!(
+//                 "{}[{}][{}] {}",
+//                 chrono::Local::now().format("[%Y-%m-%d][%H:%M:%S]"),
+//                 record.target(),
+//                 record.level(),
+//                 message
+//             ))
+//         })
+//         .level(log::LevelFilter::Debug)
+//         // CHAIN 1: Output to 'audido.log' file
+//         .chain(fern::log_file("audido.log")?)
+//         // CHAIN 2: Output to TuiLogger (for the widget)
+//         // We wrap the TuiLogger struct so Fern can send logs to it.
+//         .chain(
+//             fern::Output::call(|record| {
+//                 // Manually push to tui_logger
+//                 // This requires tui_logger::TuiLogger to be accessible.
+//                 // Since tui_logger 0.10+, it implements log::Log.
+//                 static TUI_LOGGER: tui_logger::logger::inner::TuiLogger = tui_logger::logger::inner::TuiLogger;
+//                 use log::Log;
+//                 TUI_LOGGER.log(record);
+//             })
+//         )
+//         .apply()?;
+
+//     Ok(())
+
+// }
+
 fn run_tui(handle: AudioEngineHandle, initial_files: Vec<String>) -> anyhow::Result<()> {
     // Setup terminal
     enable_raw_mode()?;
@@ -52,16 +101,10 @@ fn run_tui(handle: AudioEngineHandle, initial_files: Vec<String>) -> anyhow::Res
     let mut terminal = ratatui::Terminal::new(backend)?;
 
     let mut state = AppState::new();
+    let mut router = Router::new(Box::new(PlaybackRoute));
 
-    // Load initial files if provided (add to queue and start playing)
-    if !initial_files.is_empty() {
-        log::info!("Adding {} files to queue from CLI", initial_files.len());
-        handle
-            .cmd_tx
-            .send(AudioCommand::AddToQueue(initial_files))?;
-        handle.cmd_tx.send(AudioCommand::PlayQueueIndex(0))?;
-        state.status_message = "Loading queue...".to_string();
-    }
+    // Handle initial setup (Browser context & Queue loading)
+    setup_initial_state(&mut state, &handle, initial_files)?;
 
     loop {
         // Handle audio engine responses
@@ -70,139 +113,31 @@ fn run_tui(handle: AudioEngineHandle, initial_files: Vec<String>) -> anyhow::Res
         }
 
         // Draw UI
-        terminal.draw(|f| ui::draw(f, &state))?;
+        terminal.draw(|f| ui::draw(f, &state, &router))?;
 
-        // Handle input (with timeout to allow response polling)
+        // Handle input
         if event::poll(Duration::from_millis(100))? {
             if let Event::Key(key) = event::read()? {
                 if key.kind == KeyEventKind::Press {
-                    match key.code {
-                        // Global keys (work in both modes)
-                        KeyCode::Char('q') => {
-                            let _ = handle.cmd_tx.send(AudioCommand::Quit);
-                            break;
+                    // check if current route wants to intercept the key
+                    match router
+                        .current_mut()
+                        .intercept_global_key(key.code, &mut state, &handle)
+                    {
+                        InterceptKeyResult::Handled => {
+                            continue;
                         }
-                        KeyCode::Char(' ') => {
-                            if state.is_playing {
-                                handle.cmd_tx.send(AudioCommand::Pause)?;
-                            } else {
-                                handle.cmd_tx.send(AudioCommand::Play)?;
+                        InterceptKeyResult::HandledAndNavigate(action) => {
+                            router.execute_action(action, &mut state, &handle)?;
+                        }
+                        InterceptKeyResult::Ignored => {
+                            // Handle global keys first
+                            let should_quit =
+                                handle_global_keys(key.code, &mut state, &handle, &mut router)?;
+                            if should_quit {
+                                break;
                             }
                         }
-                        KeyCode::Char('s') => {
-                            handle.cmd_tx.send(AudioCommand::Stop)?;
-                        }
-                        KeyCode::Char('n') => {
-                            handle.cmd_tx.send(AudioCommand::Next)?;
-                        }
-                        KeyCode::Char('p') => {
-                            handle.cmd_tx.send(AudioCommand::Previous)?;
-                        }
-                        KeyCode::Char('l') => {
-                            let next_mode = state.next_loop_mode();
-                            handle.cmd_tx.send(AudioCommand::SetLoopMode(next_mode))?;
-                        }
-
-                        // Tab switching (only when dialog is not open)
-                        KeyCode::Tab => {
-                            if !state.is_dialog_open() {
-                                state.next_tab();
-                                log::debug!("Switched to tab {:?}", state.active_tab);
-                            }
-                        }
-                        KeyCode::Esc => {
-                            if state.is_dialog_open() {
-                                state.close_dialog();
-                            } else {
-                                state.next_tab();
-                            }
-                        }
-
-                        // Context-sensitive arrow keys
-                        KeyCode::Up => {
-                            if state.is_dialog_open() {
-                                state.dialog_toggle();
-                            } else {
-                                match state.active_tab {
-                                    ActiveTab::Playback => {
-                                        state.volume = (state.volume + 0.1).min(1.0);
-                                        handle
-                                            .cmd_tx
-                                            .send(AudioCommand::SetVolume(state.volume))?;
-                                    }
-                                    ActiveTab::Log => {
-                                        log::trace!("Log scroll up");
-                                    }
-                                    ActiveTab::Browser => state.browser_prev(),
-                                    ActiveTab::Queue => state.queue_prev(),
-                                }
-                            }
-                        }
-                        KeyCode::Down => {
-                            if state.is_dialog_open() {
-                                state.dialog_toggle();
-                            } else {
-                                match state.active_tab {
-                                    ActiveTab::Playback => {
-                                        state.volume = (state.volume - 0.1).max(0.0);
-                                        handle
-                                            .cmd_tx
-                                            .send(AudioCommand::SetVolume(state.volume))?;
-                                    }
-                                    ActiveTab::Log => {
-                                        log::trace!("Log scroll down");
-                                    }
-                                    ActiveTab::Browser => state.browser_next(),
-                                    ActiveTab::Queue => state.queue_next(),
-                                }
-                            }
-                        }
-                        KeyCode::Left => {
-                            if state.active_tab == ActiveTab::Playback {
-                                let new_pos = (state.position - 5.0).max(0.0);
-                                handle.cmd_tx.send(AudioCommand::Seek(new_pos))?;
-                            }
-                        }
-                        KeyCode::Right => {
-                            if state.active_tab == ActiveTab::Playback {
-                                let new_pos = state.position + 5.0;
-                                handle.cmd_tx.send(AudioCommand::Seek(new_pos))?;
-                            }
-                        }
-                        KeyCode::Enter => {
-                            // Handle dialog confirmation
-                            if let BrowserFileDialog::Open { path, selected } =
-                                &state.browser_dialog
-                            {
-                                let path_str = path.to_string_lossy().to_string();
-                                if *selected == 0 {
-                                    // Play Now: clear queue, add this file, play
-                                    handle.cmd_tx.send(AudioCommand::ClearQueue)?;
-                                    handle
-                                        .cmd_tx
-                                        .send(AudioCommand::AddToQueue(vec![path_str]))?;
-                                    handle.cmd_tx.send(AudioCommand::PlayQueueIndex(0))?;
-                                    state.active_tab = ActiveTab::Playback;
-                                } else {
-                                    // Add to Queue
-                                    handle
-                                        .cmd_tx
-                                        .send(AudioCommand::AddToQueue(vec![path_str]))?;
-                                }
-                                state.close_dialog();
-                            } else if state.active_tab == ActiveTab::Browser {
-                                // Open dialog for file selection
-                                if let Some(path) = state.browser_enter() {
-                                    state.open_browser_dialog(path);
-                                }
-                            } else if state.active_tab == ActiveTab::Queue {
-                                // Play selected track from queue
-                                if let Some(idx) = state.queue_selected() {
-                                    handle.cmd_tx.send(AudioCommand::PlayQueueIndex(idx))?;
-                                }
-                            }
-                        }
-                        _ => {}
                     }
                 }
             }
@@ -215,4 +150,87 @@ fn run_tui(handle: AudioEngineHandle, initial_files: Vec<String>) -> anyhow::Res
     terminal.show_cursor()?;
 
     Ok(())
+}
+
+fn setup_initial_state(
+    state: &mut AppState,
+    handle: &AudioEngineHandle,
+    files: Vec<String>,
+) -> anyhow::Result<()> {
+    if files.is_empty() {
+        return Ok(());
+    }
+
+    // Set Browser Context based on the first file
+    if let Some(first_file) = files.first() {
+        let path = PathBuf::from(first_file);
+
+        let target_dir = if let Ok(abs_path) = canonicalize(&path) {
+            if abs_path.is_dir() {
+                Some(abs_path)
+            } else {
+                abs_path.parent().map(|p| p.to_path_buf())
+            }
+        } else {
+            if path.is_dir() {
+                Some(path)
+            } else {
+                path.parent().map(|p| p.to_path_buf())
+            }
+        };
+
+        if let Some(dir) = target_dir {
+            if let Ok(items) = browser::get_directory_content(&dir) {
+                state.browser.current_dir = dir;
+                state.browser.items = items;
+                state.browser.list_state.select(Some(0));
+                log::info!("Browser context set to: {:?}", state.browser.current_dir);
+            }
+        }
+    }
+
+    log::info!("Adding {} files to queue from CLI", files.len());
+    handle.cmd_tx.send(AudioCommand::AddToQueue(files))?;
+    state.audio.status_message = "Loading queue...".to_string();
+
+    Ok(())
+}
+
+/// Handle global keys and delegate route-specific input to router
+fn handle_global_keys(
+    key: KeyCode,
+    state: &mut AppState,
+    handle: &AudioEngineHandle,
+    router: &mut Router,
+) -> anyhow::Result<bool> {
+    // Global keys that work regardless of route
+    match key {
+        KeyCode::Char('q') => {
+            let _ = handle.cmd_tx.send(AudioCommand::Quit);
+            return Ok(true);
+        }
+        KeyCode::Tab => {
+            // Cycle through tabs
+            let tabs = tab_names();
+            let current_name = router.current().name();
+            let current_idx = tabs.iter().position(|n| *n == current_name).unwrap_or(0);
+            let next_idx = (current_idx + 1) % tabs.len();
+            let next_route = route_for_name(tabs[next_idx]);
+            router.replace(next_route, state, handle)?;
+            return Ok(false);
+        }
+        KeyCode::Esc => {
+            // Try to pop from router (go back)
+            if router.depth() > 1 {
+                router.pop(state, handle)?;
+                return Ok(false);
+            }
+        }
+        _ => {}
+    }
+
+    // Delegate to the current route's input handler
+    let action = router.current_mut().handle_input(key, state, handle)?;
+    let should_quit = router.execute_action(action, state, handle)?;
+    Ok(should_quit)
 }

@@ -8,9 +8,12 @@ use rodio::{
     cpal::{self, traits::HostTrait},
 };
 
-use crate::commands::{AudioCommand, AudioResponse};
 use crate::queue::{LoopMode, PlaybackQueue};
 use crate::source::AudioPlaybackData;
+use crate::{
+    commands::{AudioCommand, AudioResponse, RealtimeAudioCommand},
+    dsp::eq::Equalizer,
+};
 
 /// Handle to communicate with the audio engine from the TUI
 pub struct AudioEngineHandle {
@@ -19,7 +22,7 @@ pub struct AudioEngineHandle {
 }
 
 pub struct AudioEngine {
-    stream: OutputStream,
+    _stream: OutputStream,
     sink: Sink,
     device_name: String,
     cmd_rx: Receiver<AudioCommand>,
@@ -28,6 +31,10 @@ pub struct AudioEngine {
     is_playing: bool,
     target_volume: f32,
     queue: PlaybackQueue,
+    // Realtime audio command sender (receiver is owned by BufferedSource)
+    eq_shadow: Equalizer,
+    eq_enabled: bool,
+    rt_cmd_tx: Option<Sender<RealtimeAudioCommand>>,
 }
 
 // Constants for fading
@@ -59,7 +66,7 @@ impl AudioEngine {
         let (resp_tx, resp_rx) = unbounded::<AudioResponse>();
 
         let engine = AudioEngine {
-            stream,
+            _stream: stream,
             sink,
             device_name,
             cmd_rx,
@@ -68,6 +75,9 @@ impl AudioEngine {
             is_playing: false,
             target_volume: 1.0,
             queue: PlaybackQueue::new(),
+            eq_shadow: Equalizer::new(44100, 2),
+            eq_enabled: false,
+            rt_cmd_tx: None,
         };
 
         let handle = AudioEngineHandle { cmd_tx, resp_rx };
@@ -205,12 +215,35 @@ impl AudioEngine {
 
                 match AudioPlaybackData::load_local_audio(&path) {
                     Ok(audio_data) => {
-                        let metadata = audio_data.metadata();
+                        let metadata = audio_data.metadata().clone();
+
+                        let previous_filters = self.eq_shadow.filters.clone();
+                        let previous_gain = self.eq_shadow.master_gain;
+                        let previous_preset = self.eq_shadow.preset;
+
+                        let mut new_eq =
+                            Equalizer::new(metadata.sample_rate, metadata.num_channels);
+
+                        new_eq.filters = previous_filters;
+                        new_eq.master_gain = previous_gain;
+                        new_eq.preset = previous_preset;
+
+                        new_eq.parameters_changed();
+                        self.eq_shadow = new_eq;
+
                         self.current_audio = Some(audio_data);
-                        let _ = self.resp_tx.send(AudioResponse::Loaded(metadata));
+                        let _ = self.resp_tx.send(AudioResponse::Loaded(metadata.clone()));
 
                         if let Some(ref data) = self.current_audio {
-                            self.sink.append(data.create_source());
+                            // Create realtime audio command channel
+                            let (rt_tx, rt_rx) = unbounded::<RealtimeAudioCommand>();
+                            self.rt_cmd_tx = Some(rt_tx);
+
+                            self.sink.append(data.create_source(
+                                self.eq_shadow.clone(),
+                                self.eq_enabled,
+                                rt_rx,
+                            ));
                             self.sink.set_volume(0.0);
                             self.sink.play();
                             self.is_playing = true;
@@ -229,17 +262,19 @@ impl AudioEngine {
                 if let Some(ref audio_data) = self.current_audio {
                     // Append audio source to sink if not already playing
                     if self.sink.empty() {
-                        self.sink.append(audio_data.create_source());
+                        let (rt_tx, rt_rx) = unbounded::<RealtimeAudioCommand>();
+                        self.rt_cmd_tx = Some(rt_tx);
+                        self.sink.append(audio_data.create_source(
+                            self.eq_shadow.clone(),
+                            self.eq_enabled,
+                            rt_rx,
+                        ));
                     }
                     if !self.is_playing {
-                        // Start silent
                         self.sink.set_volume(0.0);
                         self.sink.play();
                         self.is_playing = true;
-
                         let _ = self.resp_tx.send(AudioResponse::Playing);
-
-                        // Fade in
                         self.perform_fade_in();
                     }
                 } else {
@@ -294,7 +329,13 @@ impl AudioEngine {
                     audio_data.position_tracker().seek_to_seconds(pos);
 
                     // Create and append new source (starts from tracked position)
-                    self.sink.append(audio_data.create_source());
+                    let (rt_tx, rt_rx) = unbounded::<RealtimeAudioCommand>();
+                    self.rt_cmd_tx = Some(rt_tx);
+                    self.sink.append(audio_data.create_source(
+                        self.eq_shadow.clone(),
+                        self.eq_enabled,
+                        rt_rx,
+                    ));
 
                     if should_play {
                         self.sink.set_volume(self.target_volume);
@@ -332,9 +373,21 @@ impl AudioEngine {
             }
             AudioCommand::AddToQueue(paths) => {
                 log::info!("Adding {} items to queue", paths.len());
+                let was_empty = self.queue.items.is_empty();
                 let path_bufs: Vec<std::path::PathBuf> =
                     paths.into_iter().map(|s| s.into()).collect();
                 self.queue.add(path_bufs);
+
+                // Auto-play if not already playing and not paused
+                if !self.is_playing && !self.sink.is_paused() {
+                    if was_empty {
+                        self.play_queue_track(0);
+                    } else if let Some(next_idx) = self.queue.next_index() {
+                        // This handles the case where the queue had ended
+                        self.play_queue_track(next_idx);
+                    }
+                }
+
                 self.send_queue_update();
             }
             AudioCommand::RemoveFromQueue(id) => {
@@ -374,6 +427,38 @@ impl AudioEngine {
                     )));
                 }
             }
+            AudioCommand::EqSetEnabled(enabled) => {
+                log::info!("Setting EQ enabled: {}", enabled);
+                self.eq_enabled = enabled;
+                if let Some(ref tx) = self.rt_cmd_tx {
+                    let _ = tx.send(RealtimeAudioCommand::SetEqEnabled(enabled));
+                }
+            }
+            AudioCommand::EqSetMasterGain(gain_db) => {
+                log::info!("Setting EQ master gain: {} dB", gain_db);
+                // Convert dB to linear gain
+                let linear_gain = 10.0f32.powf(gain_db / 20.0);
+                self.eq_shadow.master_gain = linear_gain;
+                if let Some(ref tx) = self.rt_cmd_tx {
+                    let _ = tx.send(RealtimeAudioCommand::SetEqMasterGain(linear_gain));
+                }
+            }
+            AudioCommand::EqSetPreset(eq_preset) => {
+                log::info!("Setting EQ preset: {:?}", eq_preset);
+                self.eq_shadow.preset = eq_preset;
+                self.eq_shadow.parameters_changed();
+                if let Some(ref tx) = self.rt_cmd_tx {
+                    let _ = tx.send(RealtimeAudioCommand::SetEqPreset(eq_preset));
+                }
+            }
+            AudioCommand::EqSetAllFilters(filters) => {
+                log::info!("Setting all EQ filters: {} bands", filters.len());
+                self.eq_shadow.filters = filters.clone();
+                self.eq_shadow.parameters_changed();
+                if let Some(ref tx) = self.rt_cmd_tx {
+                    let _ = tx.send(RealtimeAudioCommand::SetAllEqFilters(filters));
+                }
+            }
         }
         true
     }
@@ -406,11 +491,31 @@ impl AudioEngine {
                         index,
                         metadata: metadata.clone(),
                     });
-                    let _ = self.resp_tx.send(AudioResponse::Loaded(metadata));
 
+                    // Preserve existing EQ settings for the new track
+                    let previous_filters = self.eq_shadow.filters.clone();
+                    let previous_gain = self.eq_shadow.master_gain;
+                    let previous_preset = self.eq_shadow.preset;
+
+                    let mut new_eq = Equalizer::new(metadata.sample_rate, metadata.num_channels);
+
+                    new_eq.filters = previous_filters;
+                    new_eq.master_gain = previous_gain;
+                    new_eq.preset = previous_preset;
+
+                    new_eq.parameters_changed();
+                    self.eq_shadow = new_eq;
+
+                    let _ = self.resp_tx.send(AudioResponse::Loaded(metadata));
                     // Start playing
                     if let Some(ref data) = self.current_audio {
-                        self.sink.append(data.create_source());
+                        let (rt_tx, rt_rx) = unbounded::<RealtimeAudioCommand>();
+                        self.rt_cmd_tx = Some(rt_tx);
+                        self.sink.append(data.create_source(
+                            self.eq_shadow.clone(),
+                            self.eq_enabled,
+                            rt_rx,
+                        ));
                         self.sink.set_volume(0.0);
                         self.sink.play();
                         self.is_playing = true;
