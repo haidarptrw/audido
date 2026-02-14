@@ -39,7 +39,7 @@ impl RouteHandler for SettingsRoute {
             KeyCode::Down => state.settings.next_item(),
             KeyCode::Enter => {
                 // Navigate to EQ panel
-                return Ok(RouteAction::Push(Box::new(EqualizerRoute)));
+                return Ok(RouteAction::Push(Box::new(EqualizerRoute::default())));
             }
             _ => {}
         }

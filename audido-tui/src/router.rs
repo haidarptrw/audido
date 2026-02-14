@@ -3,8 +3,8 @@ use ratatui::{Frame, layout::Rect};
 
 use crate::{
     routes::{
-        browser::BrowserRoute, log::LogRoute, playback::PlaybackRoute, queue::QueueRoute,
-        settings::SettingsRoute,
+        browser::BrowserRoute, eq::EqualizerRoute, log::LogRoute, playback::PlaybackRoute,
+        queue::QueueRoute, settings::SettingsRoute,
     },
     state::AppState,
 };
@@ -51,12 +51,9 @@ pub trait RouteHandler: std::fmt::Debug {
 
     fn intercept_global_key(
         &mut self,
-        #[allow(unused_variables)]
-        key: KeyCode,
-        #[allow(unused_variables)]
-        state: &mut AppState,
-        #[allow(unused_variables)]
-        handle: &AudioEngineHandle,
+        #[allow(unused_variables)] key: KeyCode,
+        #[allow(unused_variables)] state: &mut AppState,
+        #[allow(unused_variables)] handle: &AudioEngineHandle,
     ) -> InterceptKeyResult {
         InterceptKeyResult::Ignored
     }
@@ -223,12 +220,24 @@ pub fn route_for_name(name: &str) -> Box<dyn RouteHandler> {
         "Queue" => Box::new(QueueRoute),
         "Browser" => Box::new(BrowserRoute),
         "Settings" => Box::new(SettingsRoute),
-        "Log" => Box::new(LogRoute),
+        "Log" => Box::new(LogRoute::new()),
+        "Equalizer" => Box::new(EqualizerRoute::default()),
         _ => Box::new(PlaybackRoute),
     }
 }
 
+static TAB_NAMES: [&str; 5] = ["Playback", "Queue", "Browser", "Settings", "Log"];
+
 /// Get all main tab names in order
 pub fn tab_names() -> &'static [&'static str] {
-    &["Playback", "Queue", "Browser", "Settings", "Log"]
+    &TAB_NAMES
+}
+
+/// get the next tab name from the current_tab
+pub fn get_next_tab(current_tab: &str) -> Option<&'static str> {
+    let index = TAB_NAMES.iter().position(|&x| x == current_tab);
+    if let Some(index) = index {
+        return Some(TAB_NAMES[(index + 1) % TAB_NAMES.len()]);
+    }
+    None
 }

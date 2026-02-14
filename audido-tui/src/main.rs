@@ -17,6 +17,7 @@ use audido_core::{
     engine::{AudioEngine, AudioEngineHandle},
 };
 
+mod logger;
 mod router;
 mod routes;
 mod state;
@@ -31,8 +32,15 @@ use crate::routes::playback::PlaybackRoute;
 
 fn main() -> anyhow::Result<()> {
     // Initialize tui_logger for TUI log display
-    tui_logger::init_logger(log::LevelFilter::Debug).expect("Failed to init tui_logger");
-    tui_logger::set_default_level(log::LevelFilter::Debug);
+    // #[cfg(debug_assertions)]
+    // let filter_level = log::LevelFilter::Debug;
+    // #[cfg(not(debug_assertions))]
+    // let filter_level = log::LevelFilter::Info;
+
+    // tui_logger::init_logger(filter_level).expect("Failed to init tui_logger");
+    // tui_logger::set_default_level(filter_level);
+
+    logger::setup_logging()?;
 
     log::info!("Starting Audido TUI");
 
@@ -51,6 +59,38 @@ fn main() -> anyhow::Result<()> {
     // Ensure clean shutdown
     result
 }
+
+// fn setup_logging() -> Result<(), anyhow::Error> {
+//     fern::Dispatch::new()
+//         .format(|out, message, record| {
+//             out.finish(format_args!(
+//                 "{}[{}][{}] {}",
+//                 chrono::Local::now().format("[%Y-%m-%d][%H:%M:%S]"),
+//                 record.target(),
+//                 record.level(),
+//                 message
+//             ))
+//         })
+//         .level(log::LevelFilter::Debug)
+//         // CHAIN 1: Output to 'audido.log' file
+//         .chain(fern::log_file("audido.log")?)
+//         // CHAIN 2: Output to TuiLogger (for the widget)
+//         // We wrap the TuiLogger struct so Fern can send logs to it.
+//         .chain(
+//             fern::Output::call(|record| {
+//                 // Manually push to tui_logger
+//                 // This requires tui_logger::TuiLogger to be accessible.
+//                 // Since tui_logger 0.10+, it implements log::Log.
+//                 static TUI_LOGGER: tui_logger::logger::inner::TuiLogger = tui_logger::logger::inner::TuiLogger;
+//                 use log::Log;
+//                 TUI_LOGGER.log(record);
+//             })
+//         )
+//         .apply()?;
+
+//     Ok(())
+
+// }
 
 fn run_tui(handle: AudioEngineHandle, initial_files: Vec<String>) -> anyhow::Result<()> {
     // Setup terminal

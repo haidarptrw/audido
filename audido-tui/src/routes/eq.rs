@@ -1,3 +1,5 @@
+use std::ops::{Add, Sub};
+
 use audido_core::{dsp::eq::Equalizer, engine::AudioEngineHandle};
 use ratatui::{
     Frame,
@@ -6,33 +8,221 @@ use ratatui::{
     style::{Color, Modifier, Style},
     symbols,
     text::{Line, Span},
-    widgets::{Axis, Block, Borders, Chart, Clear, Dataset, GraphType, List, ListItem, Paragraph},
+    widgets::{Axis, Block, Borders, Chart, Dataset, GraphType, List, ListItem, Paragraph},
 };
+use strum::VariantArray;
 
 use crate::{
-    router::{InterceptKeyResult, RouteAction, RouteHandler},
+    router::{InterceptKeyResult, RouteAction, RouteHandler, Router, get_next_tab, route_for_name},
     state::AppState,
-    states::{AudioState, EqFocus, EqMode, EqState, SettingsOption, eq::EqDialogState},
+    states::{AudioState, EqMode, EqState},
     ui::{draw_generic_dialog, open_modal},
 };
 
+// ── Local UI types (owned by EqualizerRoute) ──────────────────────────────
+
+#[derive(PartialEq, Clone, Copy, Debug)]
+pub enum EqFocus {
+    /// Curve/Graph panel - up/down controls master gain
+    CurvePanel,
+    /// Band panel - up/down selects bands (Advanced mode only)
+    BandPanel,
+}
+
+#[derive(Debug, Clone)]
+pub struct BandFilterConfig {
+    pub selected_band: usize,
+    pub option: Vec<String>,
+    pub selected_param: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, VariantArray)]
+pub enum EqDialogOption {
+    EditBand,
+    ResetBand,
+}
+
+impl EqDialogOption {
+    /// Cycle to the next option
+    pub fn next(&self) -> Self {
+        let index = self.index();
+        let next_index = (index + 1) % Self::VARIANTS.len();
+        Self::VARIANTS[next_index]
+    }
+
+    /// Cycle to the previous option
+    pub fn prev(&self) -> Self {
+        let index = self.index();
+        let prev_index = (index + Self::VARIANTS.len() - 1) % Self::VARIANTS.len();
+        Self::VARIANTS[prev_index]
+    }
+
+    pub fn index(self) -> usize {
+        self as usize
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum EqDialogState {
+    None,
+    EqBandSelect {
+        selected_band: usize,
+        selected_dialog_option: EqDialogOption,
+    },
+}
+
+// ── Equalizer route ───────────────────────────────────────────────────────
+
 /// Equalizer route
 #[derive(Debug, Clone)]
-pub struct EqualizerRoute;
+pub struct EqualizerRoute {
+    selected_param: Option<usize>,
+    // Local UI state
+    eq_focus: EqFocus,
+    eq_selected_band: usize,
+    eq_dialog_state: EqDialogState,
+    eq_filter_band_config_opened: Option<BandFilterConfig>,
+}
+
+impl Default for EqualizerRoute {
+    fn default() -> Self {
+        Self {
+            selected_param: None,
+            eq_focus: EqFocus::CurvePanel,
+            eq_selected_band: 0,
+            eq_dialog_state: EqDialogState::None,
+            eq_filter_band_config_opened: None,
+        }
+    }
+}
 
 impl EqualizerRoute {
+    // Focus
+
+    /// Toggle focus between CurvePanel and BandPanel
+    fn toggle_focus(&mut self) {
+        self.eq_focus = match self.eq_focus {
+            EqFocus::CurvePanel => EqFocus::BandPanel,
+            EqFocus::BandPanel => EqFocus::CurvePanel,
+        };
+    }
+
+    // Band selection
+
+    /// Select next band in the filter list
+    fn next_band(&mut self, num_filters: usize) {
+        if num_filters > 0 {
+            self.eq_selected_band = (self.eq_selected_band + 1) % num_filters;
+        }
+    }
+
+    /// Select previous band in the filter list
+    fn prev_band(&mut self, num_filters: usize) {
+        if num_filters > 0 {
+            self.eq_selected_band = if self.eq_selected_band == 0 {
+                num_filters - 1
+            } else {
+                self.eq_selected_band - 1
+            };
+        }
+    }
+
+    /// Navigate next: cycles dialog option when dialog is open, else selects next band
+    fn next(&mut self, num_filters: usize) {
+        match &mut self.eq_dialog_state {
+            EqDialogState::None => {
+                self.next_band(num_filters);
+            }
+            EqDialogState::EqBandSelect {
+                selected_dialog_option,
+                ..
+            } => {
+                *selected_dialog_option = selected_dialog_option.next();
+            }
+        }
+    }
+
+    /// Navigate prev: cycles dialog option when dialog is open, else selects prev band
+    fn prev(&mut self, num_filters: usize) {
+        match &mut self.eq_dialog_state {
+            EqDialogState::None => {
+                self.prev_band(num_filters);
+            }
+            EqDialogState::EqBandSelect {
+                selected_dialog_option,
+                ..
+            } => {
+                *selected_dialog_option = selected_dialog_option.prev();
+            }
+        }
+    }
+
+    // Dialog / modal
+
+    fn open_filter_band_dialog(&mut self) {
+        self.eq_dialog_state = EqDialogState::EqBandSelect {
+            selected_band: self.eq_selected_band,
+            selected_dialog_option: EqDialogOption::EditBand,
+        };
+    }
+
+    fn close_filter_band_dialog(&mut self) {
+        self.eq_dialog_state = EqDialogState::None;
+    }
+
+    fn open_filter_band_config(&mut self, config: BandFilterConfig) {
+        self.eq_filter_band_config_opened = Some(config);
+    }
+
+    fn close_filter_band_config(&mut self) {
+        self.eq_filter_band_config_opened = None;
+    }
+
+    /// Navigate to the next param in the config modal
+    fn next_config_param(&mut self) {
+        if let Some(config) = &mut self.eq_filter_band_config_opened {
+            if !config.option.is_empty() {
+                config.selected_param = (config.selected_param + 1) % config.option.len();
+            }
+        }
+    }
+
+    /// Navigate to the previous param in the config modal
+    fn prev_config_param(&mut self) {
+        if let Some(config) = &mut self.eq_filter_band_config_opened {
+            if !config.option.is_empty() {
+                config.selected_param = if config.selected_param == 0 {
+                    config.option.len() - 1
+                } else {
+                    config.selected_param - 1
+                };
+            }
+        }
+    }
+
+    // Input handlers
+
     /// Handle input when the filter band config modal is open
     fn handle_filter_band_config_input(
         &mut self,
         key: KeyCode,
-        state: &mut AppState,
+        _state: &mut AppState,
         _handle: &AudioEngineHandle,
     ) -> anyhow::Result<RouteAction> {
         match key {
-            KeyCode::Esc => {
-                state.eq.close_filter_band_config();
+            KeyCode::Up => {
+                self.prev_config_param();
             }
-            // Future: add arrow keys / Enter to edit individual params here
+            KeyCode::Down => {
+                self.next_config_param();
+            }
+            KeyCode::Esc => {
+                self.close_filter_band_config();
+                self.selected_param = None;
+            }
+            KeyCode::Enter => {}
+            KeyCode::Left => {}
+            // Future: Enter / Left / Right to edit the selected param value
             _ => {}
         }
         Ok(RouteAction::None)
@@ -45,31 +235,42 @@ impl EqualizerRoute {
         state: &mut AppState,
         _handle: &AudioEngineHandle,
     ) -> anyhow::Result<RouteAction> {
+        let num_filters = state.eq.local_filters.len();
         match key {
             KeyCode::Up => {
-                state.eq.prev();
+                self.prev(num_filters);
             }
             KeyCode::Down => {
-                state.eq.next();
+                self.next(num_filters);
             }
             KeyCode::Enter => {
                 if let EqDialogState::EqBandSelect {
                     selected_band,
                     selected_dialog_option,
-                } = state.eq.eq_dialog_state
+                } = self.eq_dialog_state
                 {
-                    state.eq.close_filter_band_dialog();
+                    self.close_filter_band_dialog();
 
                     match selected_dialog_option {
-                        crate::states::eq::EqDialogOption::EditBand => {
-                            state.eq.open_filter_band_config(selected_band);
+                        EqDialogOption::EditBand => {
+                            self.open_filter_band_config(BandFilterConfig {
+                                selected_band,
+                                option: vec![
+                                    "Type".to_string(),
+                                    "Frequency".to_string(),
+                                    "Gain".to_string(),
+                                    "Q Factor".to_string(),
+                                    "Slope".to_string(),
+                                ],
+                                selected_param: 0,
+                            });
                         }
-                        crate::states::eq::EqDialogOption::ResetBand => {}
+                        EqDialogOption::ResetBand => {}
                     }
                 }
             }
             KeyCode::Esc => {
-                state.eq.close_filter_band_dialog();
+                self.close_filter_band_dialog();
             }
             _ => {}
         }
@@ -83,12 +284,13 @@ impl EqualizerRoute {
         state: &mut AppState,
         handle: &AudioEngineHandle,
     ) -> anyhow::Result<RouteAction> {
+        let num_filters = state.eq.local_filters.len();
         match key {
             KeyCode::Left | KeyCode::Right => {
-                state.eq.toggle_focus();
+                self.toggle_focus();
             }
             KeyCode::Up => {
-                match state.eq.eq_focus {
+                match self.eq_focus {
                     EqFocus::CurvePanel => {
                         state.eq.local_master_gain = (state.eq.local_master_gain + 0.5).min(12.0);
                         handle.cmd_tx.send(
@@ -103,13 +305,13 @@ impl EqualizerRoute {
                                 // TODO: implement toggle preset
                             }
                             EqMode::Advanced => {
-                                state.eq.prev();
+                                self.prev(num_filters);
                             }
                         }
                     }
                 }
             }
-            KeyCode::Down => match state.eq.eq_focus {
+            KeyCode::Down => match self.eq_focus {
                 EqFocus::CurvePanel => {
                     state.eq.local_master_gain = (state.eq.local_master_gain - 0.5).max(-12.0);
                     handle
@@ -119,7 +321,7 @@ impl EqualizerRoute {
                         ))?;
                 }
                 EqFocus::BandPanel => {
-                    state.eq.next();
+                    self.next(num_filters);
                 }
             },
             KeyCode::Char('t') => {
@@ -146,8 +348,8 @@ impl EqualizerRoute {
                 }
             }
             KeyCode::Enter => {
-                if state.eq.eq_focus == EqFocus::BandPanel && state.eq.eq_mode == EqMode::Advanced {
-                    state.eq.open_filter_band_dialog();
+                if self.eq_focus == EqFocus::BandPanel && state.eq.eq_mode == EqMode::Advanced {
+                    self.open_filter_band_dialog();
                 }
             }
             _ => {}
@@ -155,20 +357,32 @@ impl EqualizerRoute {
         Ok(RouteAction::None)
     }
 
-    fn has_floating_panel(state: &AppState) -> bool {
-        state.eq.eq_filter_band_config_opened.is_some()
-            || state.eq.eq_dialog_state != EqDialogState::None
+    fn has_floating_panel(&self) -> bool {
+        self.eq_filter_band_config_opened.is_some() || self.eq_dialog_state != EqDialogState::None
     }
+
+    // fn adjust_param<T>(&self, _param: &mut T, _delta: T)
+    // where
+    //     T: Add<Output = T> + Sub<Output = T> + PartialOrd + Copy,
+    // {
+    // }
 }
 
 impl RouteHandler for EqualizerRoute {
     fn render(&self, frame: &mut Frame, area: Rect, state: &AppState) {
-        draw_eq_panel(frame, area, &state.eq, &state.audio);
+        draw_eq_panel(
+            frame,
+            area,
+            &state.eq,
+            &state.audio,
+            self.eq_focus,
+            self.eq_selected_band,
+        );
 
         if let EqDialogState::EqBandSelect {
             selected_band,
             selected_dialog_option,
-        } = &state.eq.eq_dialog_state
+        } = &self.eq_dialog_state
         {
             let title = format!(" Edit Band {} ", selected_band + 1);
             let props = crate::ui::DialogProperties {
@@ -180,8 +394,10 @@ impl RouteHandler for EqualizerRoute {
         }
 
         // draw filter band configuration modal
-        if state.eq.eq_filter_band_config_opened.is_some() {
-            open_modal(frame, area, &state.eq, draw_filter_band_config_modal);
+        if let Some(config) = &self.eq_filter_band_config_opened {
+            open_modal(frame, area, (&state.eq, config), |f, area, (eq, cfg)| {
+                draw_filter_band_config_modal(f, area, eq, cfg);
+            });
         }
     }
 
@@ -192,11 +408,11 @@ impl RouteHandler for EqualizerRoute {
         handle: &AudioEngineHandle,
     ) -> anyhow::Result<RouteAction> {
         // State-first dispatch: route to the handler for the active UI context
-        if state.eq.eq_filter_band_config_opened.is_some() {
+        if self.eq_filter_band_config_opened.is_some() {
             return self.handle_filter_band_config_input(key, state, handle);
         }
 
-        if let EqDialogState::EqBandSelect { .. } = state.eq.eq_dialog_state {
+        if let EqDialogState::EqBandSelect { .. } = self.eq_dialog_state {
             return self.handle_band_select_dialog_input(key, state, handle);
         }
 
@@ -209,15 +425,17 @@ impl RouteHandler for EqualizerRoute {
 
     fn on_enter(
         &mut self,
-        state: &mut AppState,
+        _state: &mut AppState,
         _handle: &AudioEngineHandle,
     ) -> anyhow::Result<()> {
-        state.eq.open_panel();
         Ok(())
     }
 
-    fn on_exit(&mut self, state: &mut AppState, _handle: &AudioEngineHandle) -> anyhow::Result<()> {
-        state.eq.close_panel();
+    fn on_exit(
+        &mut self,
+        _state: &mut AppState,
+        _handle: &AudioEngineHandle,
+    ) -> anyhow::Result<()> {
         Ok(())
     }
 
@@ -228,17 +446,39 @@ impl RouteHandler for EqualizerRoute {
         handle: &AudioEngineHandle,
     ) -> InterceptKeyResult {
         // If any floating panel is open, intercept ALL keys and delegate to handle_input
-        let has_floating_panel = EqualizerRoute::has_floating_panel(state);
-        if has_floating_panel {
+        if self.has_floating_panel() {
             // Delegate to handle_input which already does state-first dispatch
             let _ = self.handle_input(key, state, handle);
             return InterceptKeyResult::Handled;
+        }
+
+        match key {
+            KeyCode::Tab => {
+                let Some(next_tab_name) = get_next_tab("Settings") else {
+                    return InterceptKeyResult::Ignored;
+                };
+
+                // should clear route and then go to next from setting router
+                return InterceptKeyResult::HandledAndNavigate(RouteAction::Reset(route_for_name(
+                    next_tab_name,
+                )));
+            }
+            _ => {}
         }
         InterceptKeyResult::Ignored
     }
 }
 
-pub fn draw_eq_panel(f: &mut Frame, area: Rect, eq_state: &EqState, audio_state: &AudioState) {
+// ── Draw helpers ──────────────────────────────────────────────────────────
+
+pub fn draw_eq_panel(
+    f: &mut Frame,
+    area: Rect,
+    eq_state: &EqState,
+    audio_state: &AudioState,
+    eq_focus: EqFocus,
+    eq_selected_band: usize,
+) {
     let block = Block::default()
         .title(" Equalizer ")
         .borders(Borders::ALL)
@@ -258,8 +498,8 @@ pub fn draw_eq_panel(f: &mut Frame, area: Rect, eq_state: &EqState, audio_state:
         .split(inner);
 
     draw_eq_mode_toggle(f, chunks[0], eq_state);
-    draw_eq_graph(f, chunks[1], eq_state, audio_state);
-    draw_eq_controls(f, chunks[2], eq_state);
+    draw_eq_graph(f, chunks[1], eq_state, audio_state, eq_focus);
+    draw_eq_controls(f, chunks[2], eq_state, eq_focus, eq_selected_band);
 }
 
 fn draw_eq_mode_toggle(f: &mut Frame, area: Rect, eq_state: &EqState) {
@@ -311,7 +551,13 @@ fn draw_eq_mode_toggle(f: &mut Frame, area: Rect, eq_state: &EqState) {
     f.render_widget(paragraph, area);
 }
 
-fn draw_eq_controls(f: &mut Frame, area: Rect, eq_state: &EqState) {
+fn draw_eq_controls(
+    f: &mut Frame,
+    area: Rect,
+    eq_state: &EqState,
+    eq_focus: EqFocus,
+    eq_selected_band: usize,
+) {
     let is_casual = eq_state.eq_mode == EqMode::Casual;
 
     if is_casual {
@@ -325,7 +571,7 @@ fn draw_eq_controls(f: &mut Frame, area: Rect, eq_state: &EqState) {
             .split(area);
 
         // Determine if band panel is focused
-        let is_band_focused = eq_state.eq_focus == EqFocus::BandPanel;
+        let is_band_focused = eq_focus == EqFocus::BandPanel;
         let band_border_style = if is_band_focused {
             Style::default()
                 .fg(Color::Cyan)
@@ -393,7 +639,7 @@ fn draw_eq_controls(f: &mut Frame, area: Rect, eq_state: &EqState) {
             .split(area);
 
         // Determine if band panel is focused
-        let is_band_focused = eq_state.eq_focus == EqFocus::BandPanel;
+        let is_band_focused = eq_focus == EqFocus::BandPanel;
         let band_border_style = if is_band_focused {
             Style::default()
                 .fg(Color::Cyan)
@@ -408,7 +654,7 @@ fn draw_eq_controls(f: &mut Frame, area: Rect, eq_state: &EqState) {
             .iter()
             .enumerate()
             .map(|(i, filter)| {
-                let is_selected = i == eq_state.eq_selected_band;
+                let is_selected = i == eq_selected_band;
                 let prefix = if is_selected { "▶ " } else { "  " };
                 let style = if is_selected {
                     Style::default()
@@ -446,9 +692,9 @@ fn draw_eq_controls(f: &mut Frame, area: Rect, eq_state: &EqState) {
             );
 
             let mut list_state = ratatui::widgets::ListState::default();
-            list_state.select(Some(eq_state.eq_selected_band));
+            list_state.select(Some(eq_selected_band));
             f.render_stateful_widget(list, chunks[0], &mut list_state);
-            return draw_filter_details(f, chunks[1], eq_state);
+            return draw_filter_details(f, chunks[1], eq_state, eq_selected_band);
         };
         f.render_widget(filter_list, chunks[0]);
 
@@ -460,7 +706,7 @@ fn draw_eq_controls(f: &mut Frame, area: Rect, eq_state: &EqState) {
     }
 }
 
-fn draw_filter_details(f: &mut Frame, area: Rect, eq_state: &EqState) {
+fn draw_filter_details(f: &mut Frame, area: Rect, eq_state: &EqState, eq_selected_band: usize) {
     if eq_state.local_filters.is_empty() {
         let details = Paragraph::new("No band selected")
             .style(Style::default().fg(Color::DarkGray))
@@ -469,7 +715,7 @@ fn draw_filter_details(f: &mut Frame, area: Rect, eq_state: &EqState) {
         return;
     }
 
-    let filter = &eq_state.local_filters[eq_state.eq_selected_band];
+    let filter = &eq_state.local_filters[eq_selected_band];
     let params = [
         ("Type", format!("{:?}", filter.filter_type)),
         ("Freq", format!("{} Hz", filter.freq as i32)),
@@ -492,7 +738,13 @@ fn draw_filter_details(f: &mut Frame, area: Rect, eq_state: &EqState) {
     f.render_widget(paragraph, area);
 }
 
-fn draw_eq_graph(f: &mut Frame, area: Rect, eq_state: &EqState, audio_state: &AudioState) {
+fn draw_eq_graph(
+    f: &mut Frame,
+    area: Rect,
+    eq_state: &EqState,
+    audio_state: &AudioState,
+    eq_focus: EqFocus,
+) {
     // Create a temporary Equalizer to compute the response curve
     let sample_rate = audio_state
         .metadata
@@ -578,7 +830,7 @@ fn draw_eq_graph(f: &mut Frame, area: Rect, eq_state: &EqState, audio_state: &Au
     ];
 
     // Determine border style based on focus
-    let is_focused = eq_state.eq_focus == EqFocus::CurvePanel;
+    let is_focused = eq_focus == EqFocus::CurvePanel;
     let border_style = if is_focused {
         Style::default()
             .fg(Color::Cyan)
@@ -610,19 +862,19 @@ fn draw_eq_graph(f: &mut Frame, area: Rect, eq_state: &EqState, audio_state: &Au
     f.render_widget(chart, area);
 }
 
-fn draw_filter_band_config_modal(f: &mut Frame, area: Rect, eq_state: &EqState) {
-    // Determine which band is being configured
-    let band_index = match eq_state.eq_filter_band_config_opened {
-        Some(idx) => idx,
-        None => return,
-    };
-
-    let filter = match eq_state.local_filters.get(band_index) {
+fn draw_filter_band_config_modal(
+    f: &mut Frame,
+    area: Rect,
+    eq_state: &EqState,
+    config: &BandFilterConfig,
+) {
+    let filter = match eq_state.local_filters.get(config.selected_band) {
         Some(f) => f,
         None => return,
     };
 
-    let title = format!(" Band {} Configuration ", band_index + 1);
+    let title = format!(" Band {} Configuration ", config.selected_band + 1);
+    let selected_param = config.selected_param;
 
     // Convert order to slope description (order * 6 dB/oct)
     let slope_label = format!(
@@ -653,16 +905,28 @@ fn draw_filter_band_config_modal(f: &mut Frame, area: Rect, eq_state: &EqState) 
 
     let text: Vec<Line> = params
         .iter()
-        .map(|(label, value, color)| {
+        .enumerate()
+        .map(|(i, (label, value, color))| {
+            let is_selected = i == selected_param;
+            let prefix = if is_selected { "▶ " } else { "  " };
+            let label_style = if is_selected {
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::Gray)
+            };
+            let value_style = if is_selected {
+                Style::default().fg(*color).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::DarkGray)
+            };
             Line::from(vec![
                 Span::styled(
-                    format!("  {:<12}", format!("{}:", label)),
-                    Style::default().fg(Color::Gray),
+                    format!("{}{:<12}", prefix, format!("{}:", label)),
+                    label_style,
                 ),
-                Span::styled(
-                    value.clone(),
-                    Style::default().fg(*color).add_modifier(Modifier::BOLD),
-                ),
+                Span::styled(value.clone(), value_style),
             ])
         })
         .collect();

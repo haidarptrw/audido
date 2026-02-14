@@ -3,7 +3,7 @@
 
 use std::f32::consts::PI;
 
-use strum::EnumIter;
+use strum::{EnumIter, IntoEnumIterator};
 
 pub const MAX_EQ_FILTERS: usize = 8;
 
@@ -18,6 +18,33 @@ pub enum FilterType {
     HighShelf,
     BandPass,
     Notch,
+}
+
+impl FilterType {
+    pub fn next(&self) -> FilterType {
+        let mut modes = FilterType::iter();
+        for mode in modes.by_ref() {
+            if mode == *self {
+                break;
+            }
+        }
+        modes.next().unwrap_or(FilterType::Peaking)
+    }
+
+    pub fn prev(&self) -> FilterType {
+        let modes: Vec<FilterType> = FilterType::iter().collect();
+        let len = modes.len();
+        for (i, mode) in modes.iter().enumerate() {
+            if *mode == *self {
+                if i == 0 {
+                    return modes[len - 1];
+                } else {
+                    return modes[i - 1];
+                }
+            }
+        }
+        FilterType::Peaking
+    }
 }
 
 #[derive(Clone, Debug)]
