@@ -1,6 +1,7 @@
 // Implementation for Parametric EQ
 // The algorithm is based on RBJ Audio EQ Cookbook
 
+use core::f32;
 use std::f32::consts::PI;
 
 use strum::{EnumIter, IntoEnumIterator};
@@ -107,6 +108,28 @@ impl FilterNode {
 
         // Convert to dB: 10 * log10(mag_sq) which is 20 * log10(mag)
         10.0 * mag_sq.log10()
+    }
+
+    pub fn set_filter_type(&mut self, filter_type: FilterType) {
+        self.filter_type = filter_type;
+    }
+
+    pub fn set_freq(&mut self, freq: f32) {
+        self.freq = freq.clamp(20.0, 20000.0);
+    }
+
+    pub fn set_gain(&mut self, gain: f32) {
+        self.gain = gain.clamp(-20.0, 20.0);
+    }
+
+    pub fn set_order(&mut self, order: u8) -> u8 {
+        let new_order = order.clamp(1, 16);
+        self.order = new_order;
+        new_order
+    }
+
+    pub fn set_q_factor(&mut self, q: f32) {
+        self.q = q.clamp(0.1, 10.0);
     }
 }
 

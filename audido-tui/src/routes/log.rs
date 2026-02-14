@@ -36,10 +36,8 @@ impl LogRoute {
 
 impl RouteHandler for LogRoute {
     fn render(&self, frame: &mut Frame, area: Rect, _state: &AppState) {
-        // 1. Lock and retrieve logs
         let buffer = LOG_BUFFER.lock().unwrap();
 
-        // 2. Convert to ListItems
         let items: Vec<ListItem> = buffer
             .iter()
             .map(|record| {
@@ -58,7 +56,6 @@ impl RouteHandler for LogRoute {
             })
             .collect();
 
-        // 3. Create List Widget
         let log_list = List::new(items)
             .block(
                 Block::default()
@@ -68,8 +65,7 @@ impl RouteHandler for LogRoute {
             )
             .highlight_style(Style::default().add_modifier(Modifier::REVERSED));
 
-        // 4. Interior Mutability Magic
-        // We borrow the state mutably to pass it to the widget
+        // Borrow the state mutably to pass it to the widget
         let mut state = self.list_state.borrow_mut();
 
         // Auto-scroll logic inside render:
@@ -93,9 +89,7 @@ impl RouteHandler for LogRoute {
             return Ok(RouteAction::None);
         }
 
-        // We have &mut self here, so we can use get_mut() to bypass runtime checks,
-        // or just use borrow_mut() like above.
-        let state = self.list_state.get_mut();
+        let mut state = self.list_state.borrow_mut();
 
         match key {
             KeyCode::Up => {

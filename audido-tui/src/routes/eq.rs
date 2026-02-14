@@ -1,5 +1,4 @@
-use std::ops::{Add, Sub};
-
+use anyhow::Ok;
 use audido_core::{dsp::eq::Equalizer, engine::AudioEngineHandle};
 use ratatui::{
     Frame,
@@ -13,7 +12,7 @@ use ratatui::{
 use strum::VariantArray;
 
 use crate::{
-    router::{InterceptKeyResult, RouteAction, RouteHandler, Router, get_next_tab, route_for_name},
+    router::{InterceptKeyResult, RouteAction, RouteHandler, get_next_tab, route_for_name},
     state::AppState,
     states::{AudioState, EqMode, EqState},
     ui::{draw_generic_dialog, open_modal},
@@ -76,22 +75,24 @@ pub enum EqDialogState {
 /// Equalizer route
 #[derive(Debug, Clone)]
 pub struct EqualizerRoute {
-    selected_param: Option<usize>,
     // Local UI state
     eq_focus: EqFocus,
     eq_selected_band: usize,
     eq_dialog_state: EqDialogState,
     eq_filter_band_config_opened: Option<BandFilterConfig>,
+
+    /// Tell whether it is in changing param value state
+    locked_in: bool,
 }
 
 impl Default for EqualizerRoute {
     fn default() -> Self {
         Self {
-            selected_param: None,
             eq_focus: EqFocus::CurvePanel,
             eq_selected_band: 0,
             eq_dialog_state: EqDialogState::None,
             eq_filter_band_config_opened: None,
+            locked_in: false,
         }
     }
 }
@@ -206,28 +207,96 @@ impl EqualizerRoute {
     fn handle_filter_band_config_input(
         &mut self,
         key: KeyCode,
-        _state: &mut AppState,
-        _handle: &AudioEngineHandle,
+        state: &mut AppState,
+        handle: &AudioEngineHandle,
     ) -> anyhow::Result<RouteAction> {
         match key {
             KeyCode::Up => {
-                self.prev_config_param();
+                if !self.locked_in {
+                    self.prev_config_param();
+                }
             }
             KeyCode::Down => {
-                self.next_config_param();
+                if !self.locked_in {
+                    self.next_config_param();
+                }
             }
             KeyCode::Esc => {
                 self.close_filter_band_config();
-                self.selected_param = None;
+                self.locked_in = false;
             }
-            KeyCode::Enter => {}
-            KeyCode::Left => {}
-            // Future: Enter / Left / Right to edit the selected param value
+            KeyCode::Enter => {
+                if self.eq_filter_band_config_opened.is_some() {
+                    self.locked_in = !self.locked_in;
+                }
+            }
+            KeyCode::Left => {
+                if self.locked_in {
+                    self.handle_set_parameter(state, handle, false)?;
+                }
+            }
+            KeyCode::Right => {
+                if self.locked_in {
+                    self.handle_set_parameter(state, handle, true)?;
+                }
+            }
             _ => {}
         }
         Ok(RouteAction::None)
     }
 
+    fn handle_set_parameter(
+        &mut self,
+        state: &mut AppState,
+        handle: &AudioEngineHandle,
+        is_increment: bool,
+    ) -> anyhow::Result<RouteAction> {
+        if let Some(config) = &mut self.eq_filter_band_config_opened {
+            // get this mutable ref of filter node
+            let Some(filter_node) = state.eq.local_filters.get_mut(config.selected_band) else {
+                return Ok(RouteAction::None);
+            };
+
+            match config.selected_param {
+                0 => {
+                    filter_node.set_filter_type(if is_increment {
+                        filter_node.filter_type.next()
+                    } else {
+                        filter_node.filter_type.prev()
+                    });
+                }
+                1 => {
+                    let delta = if is_increment { 10.0 } else { -10.0 };
+                    filter_node.set_freq(filter_node.freq + delta);
+                }
+                2 => {
+                    let delta = if is_increment { 0.5 } else { -0.5 };
+                    filter_node.set_gain(filter_node.gain + delta);
+                }
+                3 => {
+                    let delta = if is_increment { 0.1 } else { -0.1 };
+                    filter_node.set_q_factor(filter_node.q + delta);
+                }
+                4 => {
+                    let new_order = if is_increment {
+                        filter_node.order.saturating_add(1)
+                    } else {
+                        filter_node.order.saturating_sub(1).max(1)
+                    };
+                    filter_node.set_order(new_order);
+                }
+                _ => {}
+            }
+
+            // Send the updated filters to the audio engine
+            handle
+                .cmd_tx
+                .send(audido_core::commands::AudioCommand::EqSetAllFilters(
+                    state.eq.local_filters.clone(),
+                ))?;
+        }
+        Ok(RouteAction::None)
+    }
     /// Handle input when the band select dialog is open
     fn handle_band_select_dialog_input(
         &mut self,
@@ -260,7 +329,7 @@ impl EqualizerRoute {
                                     "Frequency".to_string(),
                                     "Gain".to_string(),
                                     "Q Factor".to_string(),
-                                    "Slope".to_string(),
+                                    "Order".to_string(),
                                 ],
                                 selected_param: 0,
                             });
@@ -360,12 +429,6 @@ impl EqualizerRoute {
     fn has_floating_panel(&self) -> bool {
         self.eq_filter_band_config_opened.is_some() || self.eq_dialog_state != EqDialogState::None
     }
-
-    // fn adjust_param<T>(&self, _param: &mut T, _delta: T)
-    // where
-    //     T: Add<Output = T> + Sub<Output = T> + PartialOrd + Copy,
-    // {
-    // }
 }
 
 impl RouteHandler for EqualizerRoute {
@@ -395,8 +458,9 @@ impl RouteHandler for EqualizerRoute {
 
         // draw filter band configuration modal
         if let Some(config) = &self.eq_filter_band_config_opened {
+            let locked = self.locked_in;
             open_modal(frame, area, (&state.eq, config), |f, area, (eq, cfg)| {
-                draw_filter_band_config_modal(f, area, eq, cfg);
+                draw_filter_band_config_modal(f, area, eq, cfg, locked);
             });
         }
     }
@@ -867,6 +931,7 @@ fn draw_filter_band_config_modal(
     area: Rect,
     eq_state: &EqState,
     config: &BandFilterConfig,
+    locked_in: bool,
 ) {
     let filter = match eq_state.local_filters.get(config.selected_band) {
         Some(f) => f,
@@ -877,11 +942,11 @@ fn draw_filter_band_config_modal(
     let selected_param = config.selected_param;
 
     // Convert order to slope description (order * 6 dB/oct)
-    let slope_label = format!(
-        "{} dB/oct (order {})",
-        filter.order as u16 * 6,
-        filter.order
-    );
+    // let slope_label = format!(
+    //     "{} dB/oct (order {})",
+    //     filter.order as u16 * 6,
+    //     filter.order
+    // );
 
     let params: Vec<(&str, String, Color)> = vec![
         ("Type", format!("{}", filter.filter_type), Color::Cyan),
@@ -900,23 +965,40 @@ fn draw_filter_band_config_modal(
             },
         ),
         ("Q Factor", format!("{:.3}", filter.q), Color::Yellow),
-        ("Slope", slope_label, Color::Magenta),
+        ("Order", filter.order.to_string(), Color::Magenta),
     ];
 
-    let text: Vec<Line> = params
+    let mut text: Vec<Line> = params
         .iter()
         .enumerate()
         .map(|(i, (label, value, color))| {
             let is_selected = i == selected_param;
-            let prefix = if is_selected { "▶ " } else { "  " };
-            let label_style = if is_selected {
+            let is_locked = is_selected && locked_in;
+            let prefix = if is_locked {
+                "⏺ "
+            } else if is_selected {
+                "▶ "
+            } else {
+                "  "
+            };
+            let label_style = if is_locked {
+                Style::default()
+                    .fg(Color::White)
+                    .bg(Color::DarkGray)
+                    .add_modifier(Modifier::BOLD)
+            } else if is_selected {
                 Style::default()
                     .fg(Color::White)
                     .add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(Color::Gray)
             };
-            let value_style = if is_selected {
+            let value_style = if is_locked {
+                Style::default()
+                    .fg(*color)
+                    .bg(Color::DarkGray)
+                    .add_modifier(Modifier::BOLD)
+            } else if is_selected {
                 Style::default().fg(*color).add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(Color::DarkGray)
@@ -930,6 +1012,30 @@ fn draw_filter_band_config_modal(
             ])
         })
         .collect();
+
+    // Add a blank separator line and control hints
+    text.push(Line::from(""));
+
+    let hints = if locked_in {
+        Line::from(vec![
+            Span::styled("[←/→]", Style::default().fg(Color::Yellow)),
+            Span::raw(" Adjust  "),
+            Span::styled("[Enter]", Style::default().fg(Color::Yellow)),
+            Span::raw(" Unlock  "),
+            Span::styled("[Esc]", Style::default().fg(Color::Yellow)),
+            Span::raw(" Close"),
+        ])
+    } else {
+        Line::from(vec![
+            Span::styled("[↑/↓]", Style::default().fg(Color::Yellow)),
+            Span::raw(" Navigate  "),
+            Span::styled("[Enter]", Style::default().fg(Color::Yellow)),
+            Span::raw(" Edit  "),
+            Span::styled("[Esc]", Style::default().fg(Color::Yellow)),
+            Span::raw(" Close"),
+        ])
+    };
+    text.push(hints);
 
     let block = Block::default()
         .title(title)
