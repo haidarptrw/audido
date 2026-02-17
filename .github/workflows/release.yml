@@ -12,7 +12,7 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: ubuntu-latest # Older Ubuntu for better glibc compatibility (distro-agnostic)
+          - os: ubuntu-latest
             artifact_name: audido-linux
             asset_name: audido-linux-x86_64
           - os: windows-latest

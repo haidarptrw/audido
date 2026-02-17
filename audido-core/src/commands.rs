@@ -43,6 +43,9 @@ pub enum AudioCommand {
     EqSetPreset(EqPreset),
     /// Set all EQ filters
     EqSetAllFilters(Vec<FilterNode>),
+    EqResetParameters,
+    /// Reset a single EQ filter node to preset default
+    EqResetFilterNode(usize),
     /// Shutdown the audio engine
     Quit,
 }
@@ -86,5 +89,8 @@ pub enum RealtimeAudioCommand {
     SetEqMasterGain(f32),
     /// Set the equalizer to a specific preset
     SetEqPreset(EqPreset),
+    ResetEq,
+    /// Reset a single filter node
+    ResetEqFilterNode(usize),
     SetEqEnabled(bool),
 }

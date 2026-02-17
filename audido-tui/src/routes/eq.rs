@@ -302,7 +302,7 @@ impl EqualizerRoute {
         &mut self,
         key: KeyCode,
         state: &mut AppState,
-        _handle: &AudioEngineHandle,
+        handle: &AudioEngineHandle,
     ) -> anyhow::Result<RouteAction> {
         let num_filters = state.eq.local_filters.len();
         match key {
@@ -334,7 +334,22 @@ impl EqualizerRoute {
                                 selected_param: 0,
                             });
                         }
-                        EqDialogOption::ResetBand => {}
+                        EqDialogOption::ResetBand => {
+                            // Reset the local filter to preset default
+                            let preset_filters = state.eq.local_preset.set_filters();
+                            if let Some(default_node) = preset_filters.get(selected_band).cloned() {
+                                if let Some(filter) = state.eq.local_filters.get_mut(selected_band)
+                                {
+                                    *filter = default_node;
+                                }
+                            }
+                            // Send command to audio engine
+                            handle.cmd_tx.send(
+                                audido_core::commands::AudioCommand::EqResetFilterNode(
+                                    selected_band,
+                                ),
+                            )?;
+                        }
                     }
                 }
             }

@@ -20,8 +20,9 @@ use crate::{
     metadata::{AudioMetadata, ChannelLayout},
 };
 
-const CHUNK_SIZE: usize = 512;
 use crate::dsp::pitch_detection::{SongKeyArgsBuilder, detect_song_key};
+
+const CHUNK_SIZE: usize = 512;
 
 /// Shared position tracker between source and engine
 #[derive(Clone)]
@@ -161,6 +162,7 @@ impl AudioPlaybackData {
     }
 
     /// Analyze audio properties in background and update metadata when done
+    // FIXME: Incorrectly classify the song key
     fn analyze_audio_properties(
         buffer: &[f32],
         sample_rate: f32,
@@ -294,7 +296,7 @@ impl BufferedSource {
         self.process_buffer.clear();
         self.process_buffer_idx = 0;
 
-        // 1. Process Pending EQ Commands (Lock-Free)
+        // Process Pending EQ Commands (Lock-Free)
         while let Ok(cmd) = self.cmd_rx.try_recv() {
             match cmd {
                 RealtimeAudioCommand::UpdateEqFilter(idx, filter_node) => {
@@ -312,10 +314,16 @@ impl BufferedSource {
                 RealtimeAudioCommand::SetEqEnabled(enabled) => {
                     self.equalizer.on = enabled;
                 }
+                RealtimeAudioCommand::ResetEq => {
+                    self.equalizer.instance.reset_parameters();
+                }
+                RealtimeAudioCommand::ResetEqFilterNode(index) => {
+                    let _ = self.equalizer.instance.reset_filter_node_param(index);
+                }
             }
         }
 
-        // 2. Fetch Audio
+        // Fetch Audio
         let global_pos = self.position_tracker.position.load(Ordering::Relaxed);
         if global_pos >= self.samples.len() {
             return false;
@@ -325,7 +333,7 @@ impl BufferedSource {
         self.process_buffer
             .extend_from_slice(&self.samples[global_pos..end_pos]);
 
-        // 3. Apply DSP only if EQ is enabled
+        // Apply DSP only if EQ is enabled
         if self.equalizer.on {
             self.equalizer
                 .instance

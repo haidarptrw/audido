@@ -460,6 +460,23 @@ impl AudioEngine {
                     let _ = tx.send(RealtimeAudioCommand::SetAllEqFilters(filters));
                 }
             }
+            AudioCommand::EqResetParameters => {
+                log::info!("Setting all EQ filters to their default state");
+                self.eq_shadow.reset_parameters();
+                self.eq_shadow.parameters_changed();
+                if let Some(ref tx) = self.rt_cmd_tx {
+                    let _ = tx.send(RealtimeAudioCommand::ResetEq);
+                }
+            }
+            AudioCommand::EqResetFilterNode(index) => {
+                log::info!("Resetting EQ filter node {} to preset default", index);
+                if let Err(e) = self.eq_shadow.reset_filter_node_param(index) {
+                    log::warn!("Failed to reset filter node {}: {}", index, e);
+                }
+                if let Some(ref tx) = self.rt_cmd_tx {
+                    let _ = tx.send(RealtimeAudioCommand::ResetEqFilterNode(index));
+                }
+            }
         }
         true
     }
