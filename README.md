@@ -22,7 +22,7 @@ Prerequisites:
 Clone the repository:
 
 ```bash
-git clone https://github.com/<your-org-or-user>/audido.git
+git clone https://github.com/haidarptrw/audido.git
 cd audido
 ```
 
