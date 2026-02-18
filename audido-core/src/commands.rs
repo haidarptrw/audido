@@ -1,5 +1,5 @@
 use crate::{
-    dsp::eq::{EqPreset, FilterNode},
+    dsp::{eq::{EqPreset, FilterNode}, normalization::NormalizationMode},
     metadata::AudioMetadata,
     queue::{LoopMode, QueueItem},
 };
@@ -43,6 +43,17 @@ pub enum AudioCommand {
     EqSetPreset(EqPreset),
     /// Set all EQ filters
     EqSetAllFilters(Vec<FilterNode>),
+    EqResetParameters,
+    /// Reset a single EQ filter node to preset default
+    EqResetFilterNode(usize),
+    /// Enable or disable the normalizer
+    NormalizerSetEnabled(bool),
+    /// Set the normalization mode (Peak or RMS)
+    NormalizerSetMode(NormalizationMode),
+    /// Set the target level for normalization
+    NormalizerSetTargetLevel(f32),
+    /// Set headroom in dB (for RMS mode)
+    NormalizerSetHeadroom(f32),
     /// Shutdown the audio engine
     Quit,
 }
@@ -86,5 +97,16 @@ pub enum RealtimeAudioCommand {
     SetEqMasterGain(f32),
     /// Set the equalizer to a specific preset
     SetEqPreset(EqPreset),
+    ResetEq,
+    /// Reset a single filter node
+    ResetEqFilterNode(usize),
     SetEqEnabled(bool),
+    /// Update normalizer mode
+    SetNormalizerMode(NormalizationMode),
+    /// Update normalizer target level
+    SetNormalizerTargetLevel(f32),
+    /// Update normalizer headroom
+    SetNormalizerHeadroom(f32),
+    /// Enable or disable normalizer
+    SetNormalizerEnabled(bool),
 }

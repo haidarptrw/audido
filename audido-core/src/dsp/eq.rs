@@ -107,7 +107,12 @@ impl FilterNode {
         let mag_sq = (num_r * num_r + num_i * num_i) / (den_r * den_r + den_i * den_i);
 
         // Convert to dB: 10 * log10(mag_sq) which is 20 * log10(mag)
-        10.0 * mag_sq.log10()
+        let single_biquad_db = 10.0 * mag_sq.log10();
+
+        // Account for cascaded biquads: order N uses ceil(N/2) identical biquad sections.
+        // In dB, cascading N sections multiplies the single-section dB by N.
+        let num_biquads = (self.order as f32 / 2.0).ceil().max(1.0);
+        single_biquad_db * num_biquads
     }
 
     pub fn set_filter_type(&mut self, filter_type: FilterType) {
@@ -130,6 +135,13 @@ impl FilterNode {
 
     pub fn set_q_factor(&mut self, q: f32) {
         self.q = q.clamp(0.1, 10.0);
+    }
+
+    /// Reset this filter node to default parameter values, preserving its id
+    pub fn reset(&mut self) {
+        let id = self.id;
+        *self = Self::default();
+        self.id = id;
     }
 }
 
@@ -382,6 +394,7 @@ impl Equalizer {
         }
     }
 
+    /// Rebuild the DSP processors. called when the parameter is changed
     fn rebuild_processors(&mut self) {
         self.processors.clear();
 
@@ -448,6 +461,30 @@ impl Equalizer {
                 }
             }
         }
+    }
+
+    pub fn reset_parameters(&mut self) {
+        self.filters = self.preset.set_filters();
+        self.master_gain = 1.0;
+        self.parameters_changed();
+    }
+
+    pub fn reset_filter_node_param(&mut self, node_index: usize) -> anyhow::Result<()> {
+        let preset_filters = self.preset.set_filters();
+        let default_node = preset_filters.get(node_index).cloned().unwrap_or_else(|| {
+            let mut node = FilterNode::default();
+            node.id = node_index as i16;
+            node
+        });
+
+        let filter_node = self
+            .filters
+            .get_mut(node_index)
+            .ok_or(anyhow::anyhow!("Filter node not found"))?;
+        *filter_node = default_node;
+
+        self.parameters_changed();
+        Ok(())
     }
 
     /// Get the combined frequency response curve for plotting

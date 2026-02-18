@@ -1,5 +1,9 @@
 use anyhow::Ok;
-use audido_core::{dsp::eq::Equalizer, engine::AudioEngineHandle};
+use audido_core::{
+    commands::AudioCommand,
+    dsp::eq::{Equalizer, FilterNode},
+    engine::AudioEngineHandle,
+};
 use ratatui::{
     Frame,
     crossterm::event::KeyCode,
@@ -289,11 +293,9 @@ impl EqualizerRoute {
             }
 
             // Send the updated filters to the audio engine
-            handle
-                .cmd_tx
-                .send(audido_core::commands::AudioCommand::EqSetAllFilters(
-                    state.eq.local_filters.clone(),
-                ))?;
+            handle.cmd_tx.send(AudioCommand::EqSetAllFilters(
+                state.eq.local_filters.clone(),
+            ))?;
         }
         Ok(RouteAction::None)
     }
@@ -302,7 +304,7 @@ impl EqualizerRoute {
         &mut self,
         key: KeyCode,
         state: &mut AppState,
-        _handle: &AudioEngineHandle,
+        handle: &AudioEngineHandle,
     ) -> anyhow::Result<RouteAction> {
         let num_filters = state.eq.local_filters.len();
         match key {
@@ -334,7 +336,20 @@ impl EqualizerRoute {
                                 selected_param: 0,
                             });
                         }
-                        EqDialogOption::ResetBand => {}
+                        EqDialogOption::ResetBand => {
+                            // Reset the local filter to preset default
+                            let preset_filters = state.eq.local_preset.set_filters();
+                            if let Some(default_node) = preset_filters.get(selected_band).cloned() {
+                                if let Some(filter) = state.eq.local_filters.get_mut(selected_band)
+                                {
+                                    *filter = default_node;
+                                }
+                            }
+                            // Send command to audio engine
+                            handle
+                                .cmd_tx
+                                .send(AudioCommand::EqResetFilterNode(selected_band))?;
+                        }
                     }
                 }
             }
@@ -362,11 +377,9 @@ impl EqualizerRoute {
                 match self.eq_focus {
                     EqFocus::CurvePanel => {
                         state.eq.local_master_gain = (state.eq.local_master_gain + 0.5).min(12.0);
-                        handle.cmd_tx.send(
-                            audido_core::commands::AudioCommand::EqSetMasterGain(
-                                state.eq.local_master_gain,
-                            ),
-                        )?;
+                        handle
+                            .cmd_tx
+                            .send(AudioCommand::EqSetMasterGain(state.eq.local_master_gain))?;
                     }
                     EqFocus::BandPanel => {
                         match state.eq.eq_mode {
@@ -385,9 +398,7 @@ impl EqualizerRoute {
                     state.eq.local_master_gain = (state.eq.local_master_gain - 0.5).max(-12.0);
                     handle
                         .cmd_tx
-                        .send(audido_core::commands::AudioCommand::EqSetMasterGain(
-                            state.eq.local_master_gain,
-                        ))?;
+                        .send(AudioCommand::EqSetMasterGain(state.eq.local_master_gain))?;
                 }
                 EqFocus::BandPanel => {
                     self.next(num_filters);
@@ -397,9 +408,7 @@ impl EqualizerRoute {
                 state.eq.toggle_enabled();
                 handle
                     .cmd_tx
-                    .send(audido_core::commands::AudioCommand::EqSetEnabled(
-                        state.eq.eq_enabled,
-                    ))?;
+                    .send(AudioCommand::EqSetEnabled(state.eq.eq_enabled))?;
             }
             KeyCode::Char('m') => {
                 state.eq.toggle_mode();
@@ -407,13 +416,11 @@ impl EqualizerRoute {
             KeyCode::Char('a') => {
                 if state.eq.local_filters.len() < 8 {
                     let new_id = state.eq.local_filters.len() as i16;
-                    let new_filter = audido_core::dsp::eq::FilterNode::new(new_id, 1000.0);
+                    let new_filter = FilterNode::new(new_id, 1000.0);
                     state.eq.local_filters.push(new_filter);
-                    handle
-                        .cmd_tx
-                        .send(audido_core::commands::AudioCommand::EqSetAllFilters(
-                            state.eq.local_filters.clone(),
-                        ))?;
+                    handle.cmd_tx.send(AudioCommand::EqSetAllFilters(
+                        state.eq.local_filters.clone(),
+                    ))?;
                 }
             }
             KeyCode::Enter => {

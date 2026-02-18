@@ -3,7 +3,7 @@ name = "audido-tui"
 version = "0.1.0"
 edition = "2024"
 description = "A terminal-based audio player with queue management"
-license = "MIT"
+license = "GPL-3.0-or-later"
 
 [dependencies]
 ratatui = "0.30.0"

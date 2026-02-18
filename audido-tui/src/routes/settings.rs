@@ -16,7 +16,7 @@ use crate::{
     router::{RouteAction, RouteHandler},
     routes::eq::EqualizerRoute,
     state::AppState,
-    states::{EqState, SettingsOption, SettingsState},
+    states::{EqState, SettingsOption, SettingsState, normalizer::NormalizerState},
 };
 
 /// Settings route
@@ -25,7 +25,7 @@ pub struct SettingsRoute;
 
 impl RouteHandler for SettingsRoute {
     fn render(&self, frame: &mut Frame, area: Rect, state: &AppState) {
-        draw_settings_panel(frame, area, &state.settings, &state.eq);
+        draw_settings_panel(frame, area, &state.settings, &state.eq, &state.normalizer);
     }
 
     fn handle_input(
@@ -56,10 +56,11 @@ pub fn draw_settings_panel(
     area: Rect,
     settings_state: &SettingsState,
     eq_state: &EqState,
+    normalizer_state: &NormalizerState,
 ) {
     // Panel is active when rendered (router-based system)
     let is_active = true;
-    draw_settings_list(f, area, settings_state, eq_state, is_active);
+    draw_settings_list(f, area, settings_state, eq_state, normalizer_state, is_active);
 }
 
 fn draw_settings_list(
@@ -67,6 +68,7 @@ fn draw_settings_list(
     area: Rect,
     settings_state: &SettingsState,
     eq_state: &EqState,
+    normalizer_state: &NormalizerState,
     is_active: bool,
 ) {
     let block = Block::default()
@@ -96,6 +98,13 @@ fn draw_settings_list(
                         "Off"
                     }
                 }
+                SettingsOption::Normalize => {
+                    if normalizer_state.enabled {
+                        "On"
+                    } else {
+                        "Off"
+                    }
+                },
             };
 
             let prefix = if is_selected { "▶ " } else { "  " };

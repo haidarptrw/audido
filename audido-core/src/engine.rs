@@ -12,7 +12,7 @@ use crate::queue::{LoopMode, PlaybackQueue};
 use crate::source::AudioPlaybackData;
 use crate::{
     commands::{AudioCommand, AudioResponse, RealtimeAudioCommand},
-    dsp::eq::Equalizer,
+    dsp::{eq::Equalizer, normalization::Normalizer},
 };
 
 /// Handle to communicate with the audio engine from the TUI
@@ -34,6 +34,8 @@ pub struct AudioEngine {
     // Realtime audio command sender (receiver is owned by BufferedSource)
     eq_shadow: Equalizer,
     eq_enabled: bool,
+    normalizer_shadow: Normalizer,
+    normalizer_enabled: bool,
     rt_cmd_tx: Option<Sender<RealtimeAudioCommand>>,
 }
 
@@ -77,6 +79,8 @@ impl AudioEngine {
             queue: PlaybackQueue::new(),
             eq_shadow: Equalizer::new(44100, 2),
             eq_enabled: false,
+            normalizer_shadow: Normalizer::new(),
+            normalizer_enabled: false,
             rt_cmd_tx: None,
         };
 
@@ -458,6 +462,51 @@ impl AudioEngine {
                 self.eq_shadow.parameters_changed();
                 if let Some(ref tx) = self.rt_cmd_tx {
                     let _ = tx.send(RealtimeAudioCommand::SetAllEqFilters(filters));
+                }
+            }
+            AudioCommand::EqResetParameters => {
+                log::info!("Setting all EQ filters to their default state");
+                self.eq_shadow.reset_parameters();
+                self.eq_shadow.parameters_changed();
+                if let Some(ref tx) = self.rt_cmd_tx {
+                    let _ = tx.send(RealtimeAudioCommand::ResetEq);
+                }
+            }
+            AudioCommand::EqResetFilterNode(index) => {
+                log::info!("Resetting EQ filter node {} to preset default", index);
+                if let Err(e) = self.eq_shadow.reset_filter_node_param(index) {
+                    log::warn!("Failed to reset filter node {}: {}", index, e);
+                }
+                if let Some(ref tx) = self.rt_cmd_tx {
+                    let _ = tx.send(RealtimeAudioCommand::ResetEqFilterNode(index));
+                }
+            }
+            AudioCommand::NormalizerSetEnabled(enabled) => {
+                log::info!("Setting normalizer enabled: {}", enabled);
+                self.normalizer_enabled = enabled;
+                if let Some(ref tx) = self.rt_cmd_tx {
+                    let _ = tx.send(RealtimeAudioCommand::SetNormalizerEnabled(enabled));
+                }
+            }
+            AudioCommand::NormalizerSetMode(mode) => {
+                log::info!("Setting normalizer mode: {:?}", mode);
+                self.normalizer_shadow.set_mode(mode);
+                if let Some(ref tx) = self.rt_cmd_tx {
+                    let _ = tx.send(RealtimeAudioCommand::SetNormalizerMode(mode));
+                }
+            }
+            AudioCommand::NormalizerSetTargetLevel(level) => {
+                log::info!("Setting normalizer target level: {}", level);
+                self.normalizer_shadow.set_target_level(level);
+                if let Some(ref tx) = self.rt_cmd_tx {
+                    let _ = tx.send(RealtimeAudioCommand::SetNormalizerTargetLevel(level));
+                }
+            }
+            AudioCommand::NormalizerSetHeadroom(headroom_db) => {
+                log::info!("Setting normalizer headroom: {} dB", headroom_db);
+                self.normalizer_shadow.set_headroom(headroom_db);
+                if let Some(ref tx) = self.rt_cmd_tx {
+                    let _ = tx.send(RealtimeAudioCommand::SetNormalizerHeadroom(headroom_db));
                 }
             }
         }

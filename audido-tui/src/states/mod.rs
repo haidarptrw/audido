@@ -3,6 +3,7 @@ pub mod browser;
 pub mod eq;
 pub mod queue;
 pub mod settings;
+pub mod normalizer;
 
 pub use audio::AudioState;
 pub use browser::{BrowserFileDialog, BrowserState};
