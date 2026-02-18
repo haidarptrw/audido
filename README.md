@@ -79,7 +79,8 @@ cargo run --release -p audido-tui
 
 Thanks to everyone who contributed. If your name or avatar is missing, open a PR to add yourself.
 
-- **haidarptrw** — ![haidarptrw avatar](https://github.com/haidarptrw.png) — https://github.com/haidarptrw
+ - **haidarptrw** — https://github.com/haidarptrw  
+	 <a href="https://github.com/haidarptrw"><img src="https://github.com/haidarptrw.png" alt="haidarptrw avatar" width="40" height="40" style="border-radius:6px"></a>
 
 If you want to add more contributors automatically, run:
 
