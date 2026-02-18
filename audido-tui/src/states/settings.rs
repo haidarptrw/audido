@@ -1,12 +1,14 @@
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum SettingsOption {
     Equalizer,
+    Normalize,
 }
 
 impl SettingsOption {
     pub fn label(&self) -> &str {
         match self {
             SettingsOption::Equalizer => "Equalizer",
+            SettingsOption::Normalize => "Normalize Audio",
         }
     }
 }
@@ -24,7 +26,7 @@ pub struct SettingsState {
 impl SettingsState {
     pub fn new() -> Self {
         Self {
-            items: vec![SettingsOption::Equalizer],
+            items: vec![SettingsOption::Equalizer, SettingsOption::Normalize],
             selected_index: 0,
             is_dialog_open: false,
             dialog_selection_index: 0,

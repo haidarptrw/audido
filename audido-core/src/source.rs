@@ -16,7 +16,7 @@ use rodio::{Decoder, Source};
 
 use crate::{
     commands::RealtimeAudioCommand,
-    dsp::{dsp_graph::DspNode, eq::Equalizer},
+    dsp::{dsp_graph::DspNode, eq::Equalizer, normalization::Normalizer},
     metadata::{AudioMetadata, ChannelLayout},
 };
 
@@ -263,6 +263,7 @@ pub struct BufferedSource {
     channels: u16,
     position_tracker: PositionTracker,
     equalizer: DspNode<Equalizer>,
+    normalizer: DspNode<Normalizer>,
     cmd_rx: Receiver<RealtimeAudioCommand>,
 
     // Chunk Processing
@@ -286,6 +287,7 @@ impl BufferedSource {
             channels,
             position_tracker,
             equalizer: DspNode::new_with_state(equalizer, eq_enabled),
+            normalizer: DspNode::new_with_state(Normalizer::new(), false),
             cmd_rx,
             process_buffer: Vec::with_capacity(CHUNK_SIZE),
             process_buffer_idx: 0,
@@ -320,6 +322,18 @@ impl BufferedSource {
                 RealtimeAudioCommand::ResetEqFilterNode(index) => {
                     let _ = self.equalizer.instance.reset_filter_node_param(index);
                 }
+                RealtimeAudioCommand::SetNormalizerMode(mode) => {
+                    self.normalizer.instance.set_mode(mode);
+                }
+                RealtimeAudioCommand::SetNormalizerTargetLevel(level) => {
+                    self.normalizer.instance.set_target_level(level);
+                }
+                RealtimeAudioCommand::SetNormalizerHeadroom(headroom) => {
+                    self.normalizer.instance.set_headroom(headroom);
+                }
+                RealtimeAudioCommand::SetNormalizerEnabled(enabled) => {
+                    self.normalizer.on = enabled;
+                }
             }
         }
 
@@ -333,11 +347,16 @@ impl BufferedSource {
         self.process_buffer
             .extend_from_slice(&self.samples[global_pos..end_pos]);
 
-        // Apply DSP only if EQ is enabled
+        // Apply DSP filters in order: EQ -> Normalizer
         if self.equalizer.on {
             self.equalizer
                 .instance
                 .process_frame(&mut self.process_buffer);
+        }
+
+        // Apply normalizer if enabled
+        if self.normalizer.on {
+            self.normalizer.instance.process(&mut self.process_buffer);
         }
 
         true

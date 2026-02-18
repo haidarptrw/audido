@@ -1,7 +1,7 @@
 use audido_core::{commands::AudioResponse, queue::LoopMode};
 use strum::IntoEnumIterator;
 
-use crate::states::{AudioState, BrowserState, EqState, QueueState, SettingsState};
+use crate::states::{AudioState, BrowserState, EqState, QueueState, SettingsState, normalizer::NormalizerState};
 
 /// Application state for the TUI
 pub struct AppState {
@@ -15,6 +15,8 @@ pub struct AppState {
     pub eq: EqState,
     /// Settings State
     pub settings: SettingsState,
+    /// Normalizer State
+    pub normalizer: NormalizerState,
 }
 
 impl AppState {
@@ -25,6 +27,8 @@ impl AppState {
             queue: QueueState::new(),
             eq: EqState::new(),
             settings: SettingsState::new(),
+            normalizer: NormalizerState::new(),
+            
         }
     }
 
